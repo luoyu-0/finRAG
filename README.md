@@ -23,11 +23,13 @@
 | 前端 | React、TypeScript |
 | 结构化存储 | MySQL |
 | 向量存储 | Milvus |
+| LLM | DeepSeek API |
+| Embedding | [BAAI/bge-small-zh-v1.5](https://huggingface.co/BAAI/bge-small-zh-v1.5)，512 维；通过 Provider 保留替换能力 |
 | OCR | PaddleOCR 为主，Tesseract 为备用和对照基线 |
 | 测试 | pytest、前端单元测试、端到端测试、接口测试 |
 | 部署 | Docker、Docker Compose |
 
-LLM、Embedding、OCR 和向量检索将通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。文本型 PDF 优先直接提取文本，仅对无有效文本层的页面执行 OCR。
+LLM、Embedding、OCR 和向量检索将通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。文本型 PDF 优先直接提取文本，仅对无有效文本层的页面执行 OCR。Embedding 初选轻量中文模型 `BAAI/bge-small-zh-v1.5`，兼顾中文检索效果与本地部署成本；获得正式数据后再决定是否需要替换。
 
 ## 仓库结构
 
@@ -65,7 +67,7 @@ finRAG/
 └─ docs/                       # 架构、接口、测试、进度及课程文档
 ```
 
-详细职责和协作边界见 [开发分工文档](docs/开发分工.md)。
+详细职责和协作边界见 [开发分工文档](docs/开发分工.md)，开发成员和 Agent 的基础规则见 [AGENTS.md](AGENTS.md)。
 
 ## 环境准备
 
@@ -87,6 +89,13 @@ node --version
 
 目前尚未提供启动命令。后续完成依赖与 Compose 配置后，将在本节补充一条命令启动和常见问题说明。
 
+## 运行环境规划
+
+- **当前主要环境**：普通 Windows 11 个人电脑，通过 Docker Desktop 和 Docker Compose 启动各项服务。
+- **跨环境部署**：容器配置不依赖 Windows 专属路径，使用环境变量、命名卷、健康检查和相对构建上下文，确保后续能够迁移到 Linux 服务器。
+- **云端环境**：服务器配置和验收方式等待评测方通知，在规格明确前不针对假定资源做专用裁剪。
+- **外部服务**：DeepSeek 通过 API 调用；密钥只通过环境变量注入，不写入镜像或仓库。
+
 ## 协作约定
 
 - 功能分支使用 `feature/<模块>-<说明>`，修复分支使用 `fix/<模块>-<说明>`。
@@ -100,7 +109,10 @@ node --version
 
 - [x] 明确总体技术栈与模块边界
 - [x] 初始化仓库目录与团队分工
-- [ ] 确定首批公开制度数据和人工评测集
+- [x] 确定 DeepSeek 与初始 Embedding 方案
+- [x] 确定本地 Docker 为当前主要部署方式
+- [ ] 等待首批公开制度数据和企业验收测试集
+- [ ] 等待评测方确认云服务器配置和验收方式
 - [ ] 确定 API 契约、数据模型与切分策略
 - [ ] 初始化后端、前端及 Docker Compose 配置
 - [ ] 实现最小可运行的端到端流程
