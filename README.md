@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库仅完成协作目录初始化，尚未加入业务逻辑、依赖配置和可运行服务。
+当前仓库已完成协作目录和 Docker 开发环境初始化，仅提供后端健康检查与前端占位页，尚未加入 RAG、OCR、问答等业务逻辑。
 
 ## 目标范围
 
@@ -67,7 +67,7 @@ finRAG/
 └─ docs/                       # 架构、接口、测试、进度及课程文档
 ```
 
-详细职责和协作边界见 [开发分工文档](docs/开发分工.md)，开发成员和 Agent 的基础规则见 [AGENTS.md](AGENTS.md)。
+详细职责和协作边界见 [开发分工文档](docs/开发分工.md)，开发成员和 Agent 的基础规则见 [AGENTS.md](AGENTS.md)，服务关系见 [容器架构](docs/architecture/容器架构.md)。
 
 ## 环境准备
 
@@ -87,7 +87,53 @@ python --version
 node --version
 ```
 
-目前尚未提供启动命令。后续完成依赖与 Compose 配置后，将在本节补充一条命令启动和常见问题说明。
+首次启动前，从示例创建本地环境变量文件：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+打开 `.env`，替换两个 MySQL 示例密码，然后执行：
+
+```bash
+docker compose config
+docker compose up -d --build
+docker compose ps
+```
+
+首次启动需要下载并构建多个镜像，耗时取决于网络。所有服务健康后可以访问：
+
+- 前端占位页：<http://127.0.0.1:3000>
+- 后端 API 文档：<http://127.0.0.1:8000/api/docs>
+- 后端健康检查：<http://127.0.0.1:8000/api/v1/health>
+- Milvus WebUI：<http://127.0.0.1:9091/webui/>
+- MinIO 控制台：<http://127.0.0.1:9001>
+
+首次构建会在容器内执行后端依赖安装、前端 TypeScript 类型检查和 Vite 生产构建，因此无需在宿主机预装 Node.js 或 Python。可通过以下命令确认所有服务是否已经进入 `healthy` 状态：
+
+```bash
+docker compose ps
+```
+
+停止容器但保留数据：
+
+```bash
+docker compose down
+```
+
+`docker compose down -v` 会同时删除 MySQL、Milvus、MinIO 和 etcd 的本地数据卷，仅在明确需要重置环境时使用。
+
+### Windows 常见启动问题
+
+如果构建阶段无法访问 `auth.docker.io` 或 `registry-1.docker.io`，并出现 `failed to fetch oauth token`，通常是 Docker Desktop 未正确使用当前 VPN、代理或 DNS。可先关闭 Docker Desktop，执行 `ipconfig /flushdns` 和 `wsl --shutdown`，再确认 VPN 的系统代理或 TUN 模式已经覆盖 Docker Desktop 后重试。不建议为临时网络问题修改 Dockerfile 或使用来源不明的镜像加速地址。
+
+如果本机已经安装 MySQL，宿主机 `3306` 端口可能被占用。此时只需在本地 `.env` 中调整映射端口，例如：
+
+```dotenv
+MYSQL_HOST_PORT=3307
+```
+
+该设置只改变宿主机访问端口；后端容器仍通过服务名 `mysql:3306` 连接数据库，因此无需修改应用配置或提交个人 `.env` 文件。
 
 ## 运行环境规划
 
@@ -95,6 +141,12 @@ node --version
 - **跨环境部署**：容器配置不依赖 Windows 专属路径，使用环境变量、命名卷、健康检查和相对构建上下文，确保后续能够迁移到 Linux 服务器。
 - **云端环境**：服务器配置和验收方式等待评测方通知，在规格明确前不针对假定资源做专用裁剪。
 - **外部服务**：DeepSeek 通过 API 调用；密钥只通过环境变量注入，不写入镜像或仓库。
+
+当前 Compose 使用 Milvus Standalone。按照 [Milvus 官方要求](https://milvus.io/docs/prerequisite-docker.md)，Docker Desktop 需要分配至少 8 GB 内存；若本机资源不足，可暂时只启动前后端与 MySQL，待后续开发向量检索时再启动 Milvus。
+
+```bash
+docker compose up -d --build mysql backend frontend
+```
 
 ## 协作约定
 
@@ -114,6 +166,7 @@ node --version
 - [ ] 等待首批公开制度数据和企业验收测试集
 - [ ] 等待评测方确认云服务器配置和验收方式
 - [ ] 确定 API 契约、数据模型与切分策略
-- [ ] 初始化后端、前端及 Docker Compose 配置
+- [x] 初始化后端、前端及 Docker Compose 配置
+- [x] 在 Windows 11 + Docker Desktop 上完成全量容器构建和健康检查验证
 - [ ] 实现最小可运行的端到端流程
 
