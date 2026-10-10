@@ -10,6 +10,7 @@
 - 对制度内容进行解析、清洗、分段、Embedding 和标签管理。
 - 结合关键词检索与向量检索生成可追溯答案。
 - 标注制度生效、失效状态，优先检索有效条文。
+- 提供本地账户登录、用户状态管理和 `admin/user` 两级权限控制。
 - 提供问答历史、收藏、来源展示和可信度评分。
 - 通过 Docker Compose 统一部署 Web、API、MySQL 和 Milvus。
 
@@ -26,10 +27,13 @@
 | LLM | DeepSeek API |
 | Embedding | [BAAI/bge-small-zh-v1.5](https://huggingface.co/BAAI/bge-small-zh-v1.5)，512 维；通过 Provider 保留替换能力 |
 | OCR | PaddleOCR 为主，Tesseract 为备用和对照基线 |
+| 用户与鉴权 | 本地账户、短时 JWT Access Token、可撤销 Refresh Session、基础 RBAC |
 | 测试 | pytest、前端单元测试、端到端测试、接口测试 |
 | 部署 | Docker、Docker Compose |
 
-LLM、Embedding、OCR 和向量检索将通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。文本型 PDF 优先直接提取文本，仅对无有效文本层的页面执行 OCR。Embedding 初选轻量中文模型 `BAAI/bge-small-zh-v1.5`，兼顾中文检索效果与本地部署成本；获得正式数据后再决定是否需要替换。
+LLM、Embedding、OCR 和向量检索将通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。文本型 PDF 优先按页直接提取文本，仅对扫描页、无有效文本层或提取质量不合格的页面执行 OCR；复杂表格、印章和异常版面可再进入版面分析或视觉模型复核。Embedding 初选轻量中文模型 `BAAI/bge-small-zh-v1.5`，兼顾中文检索效果与本地部署成本；获得正式数据后再决定是否需要替换。
+
+用户系统采用最小可用设计：默认由管理员创建账户，不开放公开注册；管理员维护知识库，普通用户使用问答、历史和收藏。密码只保存安全哈希，Refresh Token 仅保存摘要。用户鉴权、目录边界、PDF 与 OCR 路由统一记录在 [系统架构](docs/architecture/系统架构.md)。
 
 ## 仓库结构
 
@@ -38,11 +42,12 @@ finRAG/
 ├─ backend/                    # FastAPI、RAG、文档处理与后台任务
 │  ├─ app/
 │  │  ├─ api/v1/              # HTTP API 路由与版本边界
-│  │  ├─ core/                # 配置、安全、日志及公共基础能力
-│  │  ├─ domain/              # 核心领域对象与规则
+│  │  ├─ core/                # 配置、Token、密码安全、日志及公共能力
+│  │  ├─ domain/              # 用户、文档、问答等领域对象与规则
 │  │  ├─ repositories/        # MySQL、Milvus 等数据访问抽象
 │  │  ├─ schemas/             # API 请求与响应模型
 │  │  ├─ services/
+│  │  │  ├─ auth/             # 登录、会话、权限与账户安全
 │  │  │  ├─ rag/              # 检索、重排、生成与溯源编排
 │  │  │  ├─ documents/        # 文档解析、清洗、分段与标签处理
 │  │  │  └─ ocr/              # PaddleOCR、Tesseract 适配层
@@ -54,7 +59,7 @@ finRAG/
 │  │  ├─ api/                 # 后端接口客户端
 │  │  ├─ assets/              # 静态资源
 │  │  ├─ components/          # 通用组件
-│  │  ├─ features/            # 知识库、问答、历史记录等业务模块
+│  │  ├─ features/            # 登录、知识库、问答、历史记录等业务模块
 │  │  ├─ layouts/             # 页面布局
 │  │  ├─ pages/               # 路由页面
 │  │  ├─ router/              # 路由定义
@@ -67,7 +72,7 @@ finRAG/
 └─ docs/                       # 架构、接口、测试、进度及课程文档
 ```
 
-详细职责和协作边界见 [开发分工文档](docs/开发分工.md)，开发成员和 Agent 的基础规则见 [AGENTS.md](AGENTS.md)，服务关系见 [容器架构](docs/architecture/容器架构.md)。
+详细职责和协作边界见 [开发分工文档](docs/开发分工.md)，开发成员和 Agent 的基础规则见 [AGENTS.md](AGENTS.md)，模块、服务与数据关系见 [系统架构](docs/architecture/系统架构.md)，接口契约集中维护在 [系统接口](docs/api/系统接口.md)。
 
 ## 环境准备
 
@@ -168,5 +173,6 @@ docker compose up -d --build mysql backend frontend
 - [ ] 确定 API 契约、数据模型与切分策略
 - [x] 初始化后端、前端及 Docker Compose 配置
 - [x] 在 Windows 11 + Docker Desktop 上完成全量容器构建和健康检查验证
+- [x] 完成用户鉴权架构与选择性 OCR 路由规划
 - [ ] 实现最小可运行的端到端流程
 
