@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库已完成协作目录和 Docker 开发环境初始化，仅提供后端健康检查与前端占位页，尚未加入 RAG、OCR、问答等业务逻辑。
+当前仓库已完成协作目录和 Docker 开发环境初始化，提供后端健康检查、前端占位页以及与具体模型和存储解耦的 RAG 在线核心编排。文档导入、OCR、分片、Embedding、真实检索器、DeepSeek Provider、鉴权和问答 HTTP 路由尚未接入。
 
 ## 目标范围
 
@@ -174,5 +174,7 @@ docker compose up -d --build mysql backend frontend
 - [x] 初始化后端、前端及 Docker Compose 配置
 - [x] 在 Windows 11 + Docker Desktop 上完成全量容器构建和健康检查验证
 - [x] 完成用户鉴权架构与选择性 OCR 路由规划
+- [x] 实现 RAG 在线核心领域模型、混合检索融合、上下文、引用与证据支持度
+- [ ] 接入关键词检索、Milvus、Reranker 和 DeepSeek Provider
 - [ ] 实现最小可运行的端到端流程
 
