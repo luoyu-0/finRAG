@@ -140,6 +140,34 @@ MYSQL_HOST_PORT=3307
 
 该设置只改变宿主机访问端口；后端容器仍通过服务名 `mysql:3306` 连接数据库，因此无需修改应用配置或提交个人 `.env` 文件。
 
+### 前端本地开发与检查
+
+脱离容器开发前端时，在 `frontend/` 目录执行：
+
+```bash
+npm ci            # 严格按 package-lock.json 安装依赖
+npm run dev       # 开发服务器，/api 请求自动代理到 http://127.0.0.1:8000
+```
+
+提交前建议执行以下检查；GitHub Actions 会对同一组命令做自动化校验：
+
+```bash
+npm run lint          # oxlint 代码检查
+npm run format:check  # Prettier 格式检查
+npm run typecheck     # tsc 类型检查（src 与配置文件两份 tsconfig）
+npm run test:coverage # Vitest 单元测试与覆盖率
+npm run build         # 类型检查 + Vite 生产构建
+```
+
+端到端测试由 Playwright 负责，面向容器化后的真实拓扑（前端监听 3000），首次运行需先安装浏览器：
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+代码检查使用 oxlint 而非 ESLint：`typescript-eslint` 与 `@typescript-eslint/parser` 目前要求 TypeScript `<6.1.0`，与本项目锁定的 TypeScript 7 冲突，oxlint 自带解析器不受该限制。覆盖率当前只统计不设门槛，核心模块 70% 的目标待业务模块与测试就位后逐步抬升并在 CI 中硬卡。
+
 ## 运行环境规划
 
 - **当前主要环境**：普通 Windows 11 个人电脑，通过 Docker Desktop 和 Docker Compose 启动各项服务。
