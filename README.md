@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库已完成协作目录和 Docker 开发环境初始化，提供后端健康检查、前端占位页以及与具体模型和存储解耦的 RAG 在线核心编排。文档导入、OCR、分片、Embedding、真实检索器、DeepSeek Provider、鉴权和问答 HTTP 路由尚未接入。
+当前仓库已完成协作目录和 Docker 开发环境初始化，提供后端健康检查、前端占位页以及与具体模型和存储解耦的 RAG 在线核心编排。文档导入、OCR、分片、Embedding、真实检索器、LLM Provider、鉴权和问答 HTTP 路由尚未接入。
 
 ## 目标范围
 
@@ -24,7 +24,7 @@
 | 前端 | React、TypeScript |
 | 结构化存储 | MySQL |
 | 向量存储 | Milvus |
-| LLM | DeepSeek API |
+| LLM | DeepSeek API 为当前候选；是否满足课程“开源可商用”要求仍待确认 |
 | Embedding | [BAAI/bge-small-zh-v1.5](https://huggingface.co/BAAI/bge-small-zh-v1.5)，512 维；通过 Provider 保留替换能力 |
 | OCR | PaddleOCR 为主，Tesseract 为备用和对照基线 |
 | 用户与鉴权 | 本地账户、短时 JWT Access Token、可撤销 Refresh Session、基础 RBAC |
@@ -177,7 +177,7 @@ npm run test:e2e
 - **当前主要环境**：普通 Windows 11 个人电脑，通过 Docker Desktop 和 Docker Compose 启动各项服务。
 - **跨环境部署**：容器配置不依赖 Windows 专属路径，使用环境变量、命名卷、健康检查和相对构建上下文，确保后续能够迁移到 Linux 服务器。
 - **云端环境**：服务器配置和验收方式等待评测方通知，在规格明确前不针对假定资源做专用裁剪。
-- **外部服务**：DeepSeek 通过 API 调用；密钥只通过环境变量注入，不写入镜像或仓库。
+- **外部服务**：若采用 DeepSeek，则通过 API 调用；密钥只通过环境变量注入，不写入镜像或仓库。
 
 当前 Compose 使用 Milvus Standalone。按照 [Milvus 官方要求](https://milvus.io/docs/prerequisite-docker.md)，Docker Desktop 需要分配至少 8 GB 内存；若本机资源不足，可暂时只启动前后端与 MySQL，待后续开发向量检索时再启动 Milvus。
 
@@ -198,7 +198,8 @@ docker compose up -d --build mysql backend frontend
 
 - [x] 明确总体技术栈与模块边界
 - [x] 初始化仓库目录与团队分工
-- [x] 确定 DeepSeek 与初始 Embedding 方案
+- [ ] 确认最终 LLM 方案；当前候选为 DeepSeek API，需确认课程合规性
+- [x] 确定初始 Embedding 方案
 - [x] 确定本地 Docker 为当前主要部署方式
 - [ ] 等待首批公开制度数据和企业验收测试集
 - [ ] 等待评测方确认云服务器配置和验收方式
@@ -207,6 +208,6 @@ docker compose up -d --build mysql backend frontend
 - [x] 在 Windows 11 + Docker Desktop 上完成全量容器构建和健康检查验证
 - [x] 完成用户鉴权架构与选择性 OCR 路由规划
 - [x] 实现 RAG 在线核心领域模型、混合检索融合、上下文、引用与证据支持度
-- [ ] 接入关键词检索、Milvus、Reranker 和 DeepSeek Provider
+- [ ] 接入关键词检索、Milvus、Reranker 和最终确认的 LLM Provider
 - [ ] 实现最小可运行的端到端流程
 
