@@ -151,3 +151,17 @@ PR 标题沿用 Commit 格式。PR 描述至少包含：
 - 用户可见的安装、启动或使用方式变化同步更新 README 或用户手册。
 
 完成任务时，应说明修改了什么、如何验证、仍有哪些风险或未决事项，不声称未实际运行的测试已经通过。
+
+## Agent skills
+
+### Issue tracker
+
+本仓库使用 GitHub Issues 跟踪任务，相关技能通过 `gh` CLI 读写。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+本仓库使用默认的五类 triage 标签。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+本仓库采用 single-context 领域文档布局：术语表位于根目录 `GLOSSARY.md`，架构决策位于 `docs/adr/`。详见 `docs/agents/domain.md`。
