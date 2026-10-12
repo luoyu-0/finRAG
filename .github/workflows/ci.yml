@@ -81,5 +81,55 @@ jobs:
           path: backend/coverage.xml
           if-no-files-found: ignore
 
-# 端到端测试将在前端页面与后端可运行链路就绪后加入。
+  e2e:
+    name: 容器集成与端到端冒烟测试
+    runs-on: ubuntu-latest
+    needs: [frontend, backend]
+    env:
+      MYSQL_ROOT_PASSWORD: ci_root_password
+      MYSQL_PASSWORD: ci_app_password
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装前端依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 安装 Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 校验 Compose 配置
+        working-directory: .
+        run: docker compose config --quiet
+
+      - name: 构建并启动最小容器链路
+        working-directory: .
+        run: docker compose up -d --build --wait --wait-timeout 180 mysql backend frontend
+
+      - name: 端到端冒烟测试
+        run: npm run test:e2e
+
+      - name: 输出失败容器日志
+        if: failure()
+        working-directory: .
+        run: docker compose logs --no-color mysql backend frontend
+
+      - name: 清理测试容器与数据卷
+        if: always()
+        working-directory: .
+        run: docker compose down -v
+
+      - name: 上传 Playwright 报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore
+
 # 覆盖率当前只统计不设 fail 门槛（前后端一致），待业务模块与测试就位后逐步抬升。
