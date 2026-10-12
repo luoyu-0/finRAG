@@ -159,12 +159,16 @@ npm run test:coverage # Vitest 单元测试与覆盖率
 npm run build         # 类型检查 + Vite 生产构建
 ```
 
-端到端测试由 Playwright 负责，面向容器化后的真实拓扑（前端监听 3000），首次运行需先安装浏览器：
+端到端测试由 Playwright 负责，面向容器化后的真实拓扑（前端默认监听 3000），首次运行需先安装浏览器：
 
 ```bash
 npx playwright install chromium
 npm run test:e2e
 ```
+
+如果 Windows 将 3000 端口划入系统保留范围，可临时设置 `FRONTEND_PORT=3200` 启动容器，并将 `PLAYWRIGHT_BASE_URL` 设置为 `http://127.0.0.1:3200` 后再执行测试。
+
+当前冒烟用例验证 React 页面真实渲染，以及前端 Nginx 经 `/api` 反向代理访问后端健康接口。CI 会自动构建并启动 `mysql`、`backend` 和 `frontend` 后执行同一用例。
 
 代码检查使用 oxlint 而非 ESLint：`typescript-eslint` 与 `@typescript-eslint/parser` 目前要求 TypeScript `<6.1.0`，与本项目锁定的 TypeScript 7 冲突，oxlint 自带解析器不受该限制。覆盖率当前只统计不设门槛，核心模块 70% 的目标待业务模块与测试就位后逐步抬升并在 CI 中硬卡。
 
