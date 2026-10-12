@@ -1,0 +1,27 @@
+# 后端测试与覆盖率配置。
+# 生产依赖见 requirements.txt，开发与测试依赖见 requirements-dev.txt。
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+# 测试统一放在 tests/ 下，单元测试与后续集成测试分开。
+testpaths = ["tests"]
+# 固定把 backend/ 加入导入路径，保证从任意工作目录调用都能导入 app 包。
+pythonpath = ["."]
+addopts = "-ra --strict-markers --strict-config"
+# 异步用例使用标准库 unittest.IsolatedAsyncioTestCase，因此不引入 pytest-asyncio。
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.",
+    "raise NotImplementedError",
+]
+# 覆盖率门槛按 NFR-4（核心模块不低于 70%）规划。
+# 当前测试只覆盖 RAG 在线核心，业务模块尚未实现，因此先只统计不设 fail_under，
+# 待模块与测试就位后逐步抬升并在 CI 中硬卡。
