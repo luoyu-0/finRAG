@@ -1,10 +1,6 @@
+/** 应用根组件：只负责挂载路由表；鉴权状态由 AuthProvider 提供。 */
+import { AppRoutes } from "./router";
+
 export function App() {
-  return (
-    <main className="container">
-      <p className="eyebrow">finRAG</p>
-      <h1>金融制度 RAG 知识问答系统</h1>
-      <p>容器开发环境已初始化，业务功能将在后续阶段实现。</p>
-      <a href="/api/docs">查看后端 API 文档</a>
-    </main>
-  );
+  return <AppRoutes />;
 }

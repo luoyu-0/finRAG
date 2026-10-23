@@ -1,0 +1,93 @@
+/**
+ * 设计令牌（Design Tokens）
+ *
+ * 风格：监管蓝底盘 + 文献式条文引用。
+ * - 骨架与配色沿用「监管蓝」方案：深蓝主色 + 冷灰白背景，权威感强，适合金融制度场景。
+ * - 条文出处、页码、条号与原文摘录借用「文献米白」的排版语言，把「条文溯源」做成本项目的视觉特征。
+ *
+ * 全部视觉常量集中在此文件。更换风格只需改这里，不需要动组件。
+ */
+
+:root {
+  /* ── 品牌与主色 ───────────────────────────────────────── */
+  --color-brand: #1b3a6b;
+  --color-brand-strong: #142c52;
+  --color-brand-soft: #e6ebf4;
+  --color-accent: #2f63c7;
+  --color-accent-strong: #24509e;
+  --color-accent-soft: #e8effb;
+
+  /* ── 背景与表面 ───────────────────────────────────────── */
+  --color-bg: #f4f6f9;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-hover: #f1f5fb;
+  --color-border: #dde3ec;
+  --color-border-strong: #c4cddb;
+
+  /* ── 文字 ─────────────────────────────────────────────── */
+  --color-text: #172033;
+  --color-text-muted: #566178;
+  --color-text-faint: #7c8698;
+  --color-text-inverse: #ffffff;
+
+  /* ── 语义色 ───────────────────────────────────────────── */
+  --color-success: #0f7b6c;
+  --color-success-soft: #e6f4f1;
+  --color-warning: #a5670f;
+  --color-warning-soft: #fdf3e0;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdeceb;
+  --color-info: #2f63c7;
+  --color-info-soft: #e8effb;
+
+  /* ── 文献式引用（条文溯源的视觉语言）─────────────────── */
+  --citation-bg: #fbf9f4;
+  --citation-border: #e5e0d8;
+  --citation-accent: #8a5a2b;
+  --citation-quote: #6b5c48;
+
+  /* ── 字体 ─────────────────────────────────────────────── */
+  --font-sans: "Microsoft YaHei", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 15px;
+  --font-size-md: 16px;
+  --font-size-lg: 19px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 32px;
+
+  --line-height-tight: 1.35;
+  --line-height-base: 1.65;
+  --line-height-loose: 1.85;
+
+  /* ── 尺寸 ─────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --shadow-sm: 0 1px 2px rgb(23 32 51 / 6%);
+  --shadow-md: 0 4px 16px rgb(23 32 51 / 8%);
+  --shadow-lg: 0 12px 32px rgb(23 32 51 / 12%);
+
+  --layout-max: 1180px;
+  --sidebar-width: 236px;
+  --header-height: 60px;
+
+  --transition-fast: 120ms ease;
+  --transition-base: 180ms ease;
+}

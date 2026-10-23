@@ -1,18 +1,33 @@
 import { expect, test } from "@playwright/test";
 
-test("容器化前端可渲染并通过 Nginx 访问后端健康接口", async ({ page, request }) => {
+/**
+ * 容器链路冒烟测试。
+ *
+ * 验证三件事：
+ * 1. 前端由 Nginx 正常提供，未登录访问根路径会被路由守卫跳转到登录页；
+ * 2. 登录后可以进入制度问答页并完成一次提问，回答带条文引用；
+ * 3. Nginx 的 `/api` 反向代理确实到达后端健康检查接口。
+ *
+ * 业务接口尚未实现，问答结果来自前端演示数据（见 src/api/mock.ts）。
+ */
+test("登录后可进入制度问答页并完成一次提问", async ({ page, request }) => {
   await page.goto("/");
 
-  await expect(
-    page.getByRole("heading", { name: "金融制度 RAG 知识问答系统", level: 1 }),
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: "查看后端 API 文档" })).toHaveAttribute(
-    "href",
-    "/api/docs",
-  );
+  await expect(page.getByRole("heading", { level: 1, name: "登录" })).toBeVisible();
 
-  const response = await request.get("/api/v1/health");
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码").fill("finrag2026");
+  await page.getByRole("button", { name: "登录" }).click();
 
-  expect(response.ok()).toBe(true);
-  await expect(response.json()).resolves.toEqual({ status: "ok", service: "backend" });
+  await expect(page.getByRole("heading", { name: "提问" })).toBeVisible();
+
+  await page.getByLabel("问题").fill("商业银行应如何管理流动性风险？");
+  await page.getByRole("button", { name: "提问", exact: true }).click();
+
+  await expect(page.getByText(/根据检索到的示例条文/)).toBeVisible();
+  await expect(page.getByText("第二十条")).toBeVisible();
+
+  const health = await request.get("/api/v1/health");
+  expect(health.ok()).toBe(true);
+  await expect(health.json()).resolves.toEqual({ status: "ok", service: "backend" });
 });
