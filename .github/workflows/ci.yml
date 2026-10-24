@@ -88,6 +88,11 @@ jobs:
     env:
       MYSQL_ROOT_PASSWORD: ci_root_password
       MYSQL_PASSWORD: ci_app_password
+      JWT_SECRET_KEY: ci_only_secret_key_with_more_than_32_characters
+      ADMIN_BOOTSTRAP_USERNAME: admin
+      ADMIN_BOOTSTRAP_PASSWORD: ci_only_admin_password
+      E2E_ADMIN_USERNAME: admin
+      E2E_ADMIN_PASSWORD: ci_only_admin_password
     steps:
       - uses: actions/checkout@v4
 

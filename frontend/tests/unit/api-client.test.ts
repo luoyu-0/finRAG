@@ -125,6 +125,33 @@ describe("ApiClient 鉴权头", () => {
     const headers = calls[0]?.init.headers as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
   });
+
+  it("Access Token 过期时只刷新一次并重试原请求", async () => {
+    let token = "expired-token";
+    const refreshAccessToken = vi.fn<() => Promise<string>>(async () => {
+      token = "new-token";
+      return token;
+    });
+    const { client, calls } = setup(
+      [
+        jsonResponse(401, { error_code: "AUTH_TOKEN_EXPIRED", message: "令牌已过期" }),
+        jsonResponse(200, { username: "admin" }),
+      ],
+      { getAccessToken: () => token, refreshAccessToken },
+    );
+
+    await expect(client.get<{ username: string }>("/users/me")).resolves.toEqual({
+      username: "admin",
+    });
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+    const first = calls[0];
+    const second = calls[1];
+    if (!first || !second) throw new Error("请求次数不足");
+    expect((first.init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer expired-token",
+    );
+    expect((second.init.headers as Record<string, string>).Authorization).toBe("Bearer new-token");
+  });
 });
 
 describe("ApiClient 查询参数", () => {

@@ -8,6 +8,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { ApiError } from "../../api/errors";
+import { MOCK_ENABLED } from "../../api/mode";
 import { askQuestion } from "../../api/qa";
 import { apiClient } from "../../api/session";
 import { CitationList } from "../../components/CitationList";
@@ -16,11 +17,12 @@ import { PageState } from "../../components/PageState";
 import type { QuestionResponse } from "../../types/qa";
 
 const MAX_LENGTH = 500;
+const REQUEST_TIMEOUT_MS = 15_000;
 
 const EXAMPLES = [
   "商业银行应如何管理流动性风险？",
   "压力测试结果不合格时应采取哪些措施？",
-  "演示：无证据时如何回应？",
+  ...(MOCK_ENABLED ? ["演示：无证据时如何回应？"] : []),
 ];
 
 type Phase = "idle" | "loading" | "success" | "error";
@@ -78,8 +80,10 @@ export function QaPage() {
     setError(null);
     setResult(null);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await askQuestion(apiClient, { question: trimmed });
+      const response = await askQuestion(apiClient, { question: trimmed }, controller.signal);
       setResult(response);
       setPhase("success");
     } catch (caught) {
@@ -89,6 +93,8 @@ export function QaPage() {
           : new ApiError(0, "UNKNOWN_ERROR", "请求失败，请稍后重试。"),
       );
       setPhase("error");
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

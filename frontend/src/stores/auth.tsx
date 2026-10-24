@@ -11,9 +11,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import { fetchCurrentUser, login as loginRequest, logout as logoutRequest } from "../api/auth";
-import { MOCK_ENABLED } from "../api/mock";
-import { apiClient, setAccessToken, setUnauthorizedHandler } from "../api/session";
+import {
+  fetchCurrentUser,
+  login as loginRequest,
+  logout as logoutRequest,
+  register as registerRequest,
+} from "../api/auth";
+import { MOCK_ENABLED } from "../api/mode";
+import {
+  apiClient,
+  refreshAccessToken,
+  setAccessToken,
+  setUnauthorizedHandler,
+} from "../api/session";
 import type { User } from "../types/auth";
 
 export type AuthStatus = "initializing" | "anonymous" | "authenticated";
@@ -24,6 +34,7 @@ export interface AuthContextValue {
   /** 是否处于演示数据模式，界面据此显示标识。 */
   mockMode: boolean;
   login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -61,9 +72,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const refreshed = await apiClient.post<{ access_token: string }>("/auth/refresh");
-        setAccessToken(refreshed.access_token);
-        const current = await fetchCurrentUser(apiClient, refreshed.access_token);
+        const token = await refreshAccessToken();
+        const current = await fetchCurrentUser(apiClient, token);
         if (!cancelled) {
           setUser(current);
           setStatus("authenticated");
@@ -88,21 +98,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
-  const logout = useCallback(async () => {
-    try {
-      await logoutRequest(apiClient);
-    } finally {
-      // 与 clearSession 等价；此处内联是为了让依赖数组保持为空，
-      // 避免 React Compiler 判定 clearSession 为多余依赖。
-      setAccessToken(null);
-      setUser(null);
-      setStatus("anonymous");
-    }
+  const register = useCallback(async (username: string, password: string) => {
+    const result = await registerRequest(apiClient, { username, password });
+    setAccessToken(result.access_token);
+    setUser(result.user);
+    setStatus("authenticated");
   }, []);
 
+  const logout = useCallback(async () => {
+    await logoutRequest(apiClient);
+    clearSession();
+  }, [clearSession]);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, status, mockMode: MOCK_ENABLED, login, logout }),
-    [user, status, login, logout],
+    () => ({ user, status, mockMode: MOCK_ENABLED, login, register, logout }),
+    [user, status, login, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

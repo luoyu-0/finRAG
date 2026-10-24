@@ -9,7 +9,7 @@ import type { FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../../api/errors";
-import { MOCK_ACCOUNTS } from "../../api/mock";
+import { PageState } from "../../components/PageState";
 import { useAuth } from "../../stores/auth";
 
 interface LocationState {
@@ -17,7 +17,7 @@ interface LocationState {
 }
 
 export function LoginPage() {
-  const { status, login, mockMode } = useAuth();
+  const { status, login, register, mockMode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -25,9 +25,14 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [registering, setRegistering] = useState(false);
 
   if (status === "authenticated") {
     return <Navigate to="/qa" replace />;
+  }
+
+  if (status === "initializing") {
+    return <PageState kind="loading" title="正在恢复会话…" description="请稍候。" />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -36,11 +41,15 @@ export function LoginPage() {
     setSubmitting(true);
 
     try {
-      await login(username.trim(), password);
+      if (registering) {
+        await register(username.trim(), password);
+      } else {
+        await login(username.trim(), password);
+      }
       const state = location.state as LocationState | null;
       navigate(state?.from ?? "/qa", { replace: true });
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "登录失败，请稍后重试。");
+      setError(caught instanceof ApiError ? caught.message : "操作失败，请稍后重试。");
     } finally {
       setSubmitting(false);
     }
@@ -71,8 +80,12 @@ export function LoginPage() {
 
       <main className="auth-main">
         <div className="auth-card">
-          <h1 className="auth-card__title">登录</h1>
-          <p className="auth-card__desc">请使用分配给你的账户登录系统。</p>
+          <h1 className="auth-card__title">{registering ? "注册账户" : "登录"}</h1>
+          <p className="auth-card__desc">
+            {registering
+              ? "设置用户名和密码，注册后即可进入系统。"
+              : "请输入用户名和密码登录系统。"}
+          </p>
 
           <form className="stack auth-card__form" onSubmit={(event) => void handleSubmit(event)}>
             <label className="field">
@@ -93,7 +106,7 @@ export function LoginPage() {
                 className="field__input"
                 type="password"
                 name="password"
-                autoComplete="current-password"
+                autoComplete={registering ? "new-password" : "current-password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 required
@@ -107,23 +120,23 @@ export function LoginPage() {
             ) : null}
 
             <button type="submit" className="btn btn--block" disabled={submitting}>
-              {submitting ? "登录中…" : "登录"}
+              {submitting ? "请稍候…" : registering ? "注册并登录" : "登录"}
             </button>
           </form>
 
-          {mockMode ? (
-            <div className="auth-card__footer">
-              当前为演示数据模式，可使用以下账户登录：
-              {MOCK_ACCOUNTS.map((account) => (
-                <div key={account.username}>
-                  <code>
-                    {account.username} / {account.password}
-                  </code>
-                  （{account.role === "admin" ? "管理员" : "普通用户"}）
-                </div>
-              ))}
-            </div>
-          ) : null}
+          <button
+            type="button"
+            className="btn btn--ghost btn--block auth-card__switch"
+            disabled={submitting}
+            onClick={() => {
+              setError(null);
+              setRegistering((value) => !value);
+            }}
+          >
+            {registering ? "返回登录" : "注册新账户"}
+          </button>
+
+          {mockMode ? <div className="auth-card__footer">当前为单元测试演示数据模式。</div> : null}
         </div>
       </main>
     </div>

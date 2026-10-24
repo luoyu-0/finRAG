@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库已完成协作目录和 Docker 开发环境初始化，提供后端健康检查、前端占位页以及与具体模型和存储解耦的 RAG 在线核心编排。文档导入、OCR、分片、Embedding、真实检索器、LLM Provider、鉴权和问答 HTTP 路由尚未接入。
+当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由和 RAG 在线核心编排。文档导入、OCR、分片、Embedding、真实检索器和 LLM Provider 尚未接入；检索服务未配置时问答接口明确返回 `503`，不会显示虚构答案。
 
 ## 目标范围
 
@@ -33,7 +33,7 @@
 
 LLM、Embedding、OCR 和向量检索将通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。文本型 PDF 优先按页直接提取文本，仅对扫描页、无有效文本层或提取质量不合格的页面执行 OCR；复杂表格、印章和异常版面可再进入版面分析或视觉模型复核。Embedding 初选轻量中文模型 `BAAI/bge-small-zh-v1.5`，兼顾中文检索效果与本地部署成本；获得正式数据后再决定是否需要替换。
 
-用户系统采用最小可用设计：默认由管理员创建账户，不开放公开注册；管理员维护知识库，普通用户使用问答、历史和收藏。密码只保存安全哈希，Refresh Token 仅保存摘要。用户鉴权、目录边界、PDF 与 OCR 路由统一记录在 [系统架构](docs/architecture/系统架构.md)。
+用户系统默认创建 `admin / finrag2026` 管理员，登录页允许用用户名和密码注册普通账户；注册后直接登录。密码只保存安全哈希，Refresh Token 仅保存摘要。用户鉴权、目录边界、PDF 与 OCR 路由统一记录在 [系统架构](docs/architecture/系统架构.md)。
 
 ## 仓库结构
 
@@ -98,7 +98,9 @@ node --version
 Copy-Item .env.example .env
 ```
 
-打开 `.env`，替换两个 MySQL 示例密码，然后执行：
+打开 `.env`，替换两个 MySQL 示例密码。本地开发可将 `JWT_SECRET_KEY` 留空，使用固定开发密钥；正式环境仍须配置独立密钥。启动时确保 `admin / finrag2026` 可用；已有管理员若密码不同，会同步为配置的默认密码并撤销旧刷新会话。其他用户可在登录页自行注册。
+
+然后执行：
 
 ```bash
 docker compose config
@@ -108,13 +110,15 @@ docker compose ps
 
 首次启动需要下载并构建多个镜像，耗时取决于网络。所有服务健康后可以访问：
 
-- 前端占位页：<http://127.0.0.1:3000>
+- 前端登录与问答页：<http://127.0.0.1:3000>
 - 后端 API 文档：<http://127.0.0.1:8000/api/docs>
 - 后端健康检查：<http://127.0.0.1:8000/api/v1/health>
 - Milvus WebUI：<http://127.0.0.1:9091/webui/>
 - MinIO 控制台：<http://127.0.0.1:9001>
 
 首次构建会在容器内执行后端依赖安装、前端 TypeScript 类型检查和 Vite 生产构建，因此无需在宿主机预装 Node.js 或 Python。可通过以下命令确认所有服务是否已经进入 `healthy` 状态：
+
+使用初始化的管理员账户登录后，当前问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`。这是检索与生成 Provider 尚未接入时的预期结果。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。
 
 ```bash
 docker compose ps
@@ -163,6 +167,7 @@ npm run build         # 类型检查 + Vite 生产构建
 
 ```bash
 npx playwright install chromium
+$env:E2E_ADMIN_PASSWORD="<与 .env 中的初始管理员密码一致>"
 npm run test:e2e
 ```
 
