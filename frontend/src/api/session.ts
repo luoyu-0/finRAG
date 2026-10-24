@@ -11,6 +11,8 @@ import { ApiError } from "./errors";
 
 let accessToken: string | null = null;
 let unauthorizedHandler: ((error: ApiError) => void) | null = null;
+let refreshPromise: Promise<string> | null = null;
+const refreshClient = new ApiClient();
 
 export function getAccessToken(): string | null {
   return accessToken;
@@ -25,6 +27,22 @@ export function setUnauthorizedHandler(handler: ((error: ApiError) => void) | nu
   unauthorizedHandler = handler;
 }
 
+/** 并发请求和 React StrictMode 共用一次 Refresh Cookie 轮换。 */
+export function refreshAccessToken(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = refreshClient
+      .post<{ access_token: string }>("/auth/refresh")
+      .then((result) => {
+        setAccessToken(result.access_token);
+        return result.access_token;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
 /**
  * 应用共享的 HTTP 客户端。
  *
@@ -33,6 +51,7 @@ export function setUnauthorizedHandler(handler: ((error: ApiError) => void) | nu
  */
 export const apiClient = new ApiClient({
   getAccessToken,
+  refreshAccessToken,
   onUnauthorized: (error) => {
     accessToken = null;
     unauthorizedHandler?.(error);

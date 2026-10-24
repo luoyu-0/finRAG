@@ -609,6 +609,10 @@
   font-size: var(--font-size-sm);
 }
 
+.auth-card__switch {
+  margin-top: var(--space-3);
+}
+
 .auth-card__footer {
   margin-top: var(--space-5);
   padding-top: var(--space-4);

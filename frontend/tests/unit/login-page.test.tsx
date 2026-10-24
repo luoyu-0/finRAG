@@ -40,10 +40,23 @@ describe("登录页", () => {
     expect(screen.getByText("管理员（演示）")).toBeInTheDocument();
   });
 
-  it("演示数据模式下提示可用账户", () => {
+  it("演示数据模式下不展示固定凭据", () => {
     renderAt("/login");
 
-    expect(screen.getByText(/当前为演示数据模式/)).toBeInTheDocument();
-    expect(screen.getByText(/admin \/ finrag2026/)).toBeInTheDocument();
+    expect(screen.getByText(/单元测试演示数据模式/)).toBeInTheDocument();
+    expect(screen.queryByText(/finrag2026/)).not.toBeInTheDocument();
+  });
+
+  it("可从登录页注册普通账户并直接进入问答页", async () => {
+    const user = userEvent.setup();
+    renderAt("/login");
+
+    await user.click(screen.getByRole("button", { name: "注册新账户" }));
+    await user.type(screen.getByLabelText("用户名"), "fresh_user_42");
+    await user.type(screen.getByLabelText("密码"), "simple");
+    await user.click(screen.getByRole("button", { name: "注册并登录" }));
+
+    expect(await screen.findByRole("heading", { name: "提问" })).toBeInTheDocument();
+    expect(screen.getByText("演示用户")).toBeInTheDocument();
   });
 });

@@ -27,6 +27,8 @@ export interface ApiClientOptions {
   getAccessToken?: () => string | null;
   /** 收到 401 时的回调，用于触发一次会话刷新或跳转登录。 */
   onUnauthorized?: (error: ApiError) => void;
+  /** Access Token 过期时单次换票；返回 null 表示无法恢复会话。 */
+  refreshAccessToken?: () => Promise<string | null>;
 }
 
 export interface RequestOptions {
@@ -64,12 +66,14 @@ export class ApiClient {
   private readonly fetchImpl: typeof fetch;
   private readonly getAccessToken?: () => string | null;
   private readonly onUnauthorized?: (error: ApiError) => void;
+  private readonly refreshAccessToken?: () => Promise<string | null>;
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.getAccessToken = options.getAccessToken;
     this.onUnauthorized = options.onUnauthorized;
+    this.refreshAccessToken = options.refreshAccessToken;
   }
 
   async request<T>(
@@ -77,6 +81,7 @@ export class ApiClient {
     path: string,
     body?: unknown,
     options: RequestOptions = {},
+    allowRefresh = true,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}${buildQueryString(options.query)}`;
 
@@ -109,6 +114,15 @@ export class ApiClient {
         response.statusText,
       );
       if (error.isUnauthorized) {
+        if (allowRefresh && token && this.refreshAccessToken && !path.startsWith("/auth/")) {
+          try {
+            if (await this.refreshAccessToken()) {
+              return this.request<T>(method, path, body, options, false);
+            }
+          } catch {
+            // 刷新失败后按原 401 统一清理会话。
+          }
+        }
         this.onUnauthorized?.(error);
       }
       throw error;

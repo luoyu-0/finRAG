@@ -1,11 +1,10 @@
 /**
  * Mock 数据层。
  *
- * 后端业务接口尚未实现（`docs/api/系统接口.md` 中的接口均为契约草案，
- * 当前只有 `/api/v1/health` 可用），因此前端默认使用本文件的演示数据，
- * 以便界面与交互流程可以先独立验证。
+ * 仅供前端单元测试验证界面分支。正式构建会请求真实业务接口；
+ * 检索与生成 Provider 未接入时，后端返回明确的不可用错误。
  *
- * 切换方式：把 `MOCK_ENABLED` 改为 `false`。业务接口就绪后应关闭。
+ * 仅单元测试启用；正式构建和本地开发均调用真实业务接口。
  *
  * 注意：此处的制度标题、条文编号与回答内容**均为虚构示例**，只用于展示
  * 界面结构与交互，不代表任何真实监管规定。启用 Mock 时界面会显示「演示数据」标识。
@@ -14,9 +13,6 @@
 import { ApiError } from "./errors";
 import type { LoginResponse, Role, User } from "../types/auth";
 import type { Citation, QuestionResponse } from "../types/qa";
-
-/** 是否启用演示数据。业务接口就绪后改为 false。 */
-export const MOCK_ENABLED = true;
 
 /** 演示模式下的模拟网络延迟（毫秒）。 */
 const MOCK_LATENCY_MS = 420;
@@ -32,6 +28,7 @@ export const MOCK_ACCOUNTS: ReadonlyArray<{ username: string; password: string; 
   { username: "admin", password: "finrag2026", role: "admin" },
   { username: "user", password: "finrag2026", role: "user" },
 ];
+const registeredAccounts = new Map<string, string>();
 
 function toUser(username: string, role: Role): User {
   return {
@@ -48,14 +45,34 @@ export async function mockLogin(username: string, password: string): Promise<Log
   const account = MOCK_ACCOUNTS.find(
     (item) => item.username === username.trim() && item.password === password,
   );
-  if (!account) {
+  const registered = registeredAccounts.get(username.trim()) === password;
+  if (!account && !registered) {
     throw new ApiError(401, "AUTH_INVALID_CREDENTIALS", "用户名或密码错误");
   }
+  const role = account?.role ?? "user";
   return {
-    access_token: `mock-token-${account.role}`,
+    access_token: `mock-token-${role}`,
     token_type: "bearer",
     expires_in: 900,
-    user: toUser(account.username, account.role),
+    user: toUser(username.trim(), role),
+  };
+}
+
+export async function mockRegister(username: string, password: string): Promise<LoginResponse> {
+  await delay(null, 300);
+  const normalized = username.trim();
+  if (!normalized || !password) {
+    throw new ApiError(422, "VALIDATION_ERROR", "用户名和密码不能为空");
+  }
+  if (MOCK_ACCOUNTS.some((account) => account.username === normalized) || registeredAccounts.has(normalized)) {
+    throw new ApiError(409, "AUTH_USERNAME_EXISTS", "用户名已存在");
+  }
+  registeredAccounts.set(normalized, password);
+  return {
+    access_token: "mock-token-user",
+    token_type: "bearer",
+    expires_in: 900,
+    user: toUser(normalized, "user"),
   };
 }
 
