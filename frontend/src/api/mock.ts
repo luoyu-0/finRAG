@@ -64,7 +64,10 @@ export async function mockRegister(username: string, password: string): Promise<
   if (!normalized || !password) {
     throw new ApiError(422, "VALIDATION_ERROR", "用户名和密码不能为空");
   }
-  if (MOCK_ACCOUNTS.some((account) => account.username === normalized) || registeredAccounts.has(normalized)) {
+  if (
+    MOCK_ACCOUNTS.some((account) => account.username === normalized) ||
+    registeredAccounts.has(normalized)
+  ) {
     throw new ApiError(409, "AUTH_USERNAME_EXISTS", "用户名已存在");
   }
   registeredAccounts.set(normalized, password);

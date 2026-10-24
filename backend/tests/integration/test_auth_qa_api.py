@@ -8,6 +8,7 @@ from http.cookies import SimpleCookie
 import jwt
 from sqlalchemy import select
 
+from app.api.v1.auth import clear_login_failures
 from app.core.database import session_factory
 from app.core.security import hash_password
 from app.domain.rag import EvidenceSupport, EvidenceSupportLevel, RagAnswer
@@ -143,6 +144,7 @@ def test_login_refresh_logout_and_qa(monkeypatch, tmp_path):
 
 
 def test_default_admin_exists_without_extra_secrets(monkeypatch, tmp_path):
+    clear_login_failures("127.0.0.1:admin")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'default.db').as_posix()}")
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.delenv("JWT_SECRET_KEY", raising=False)

@@ -82,7 +82,9 @@ export function LoginPage() {
         <div className="auth-card">
           <h1 className="auth-card__title">{registering ? "注册账户" : "登录"}</h1>
           <p className="auth-card__desc">
-            {registering ? "设置用户名和密码，注册后即可进入系统。" : "请输入用户名和密码登录系统。"}
+            {registering
+              ? "设置用户名和密码，注册后即可进入系统。"
+              : "请输入用户名和密码登录系统。"}
           </p>
 
           <form className="stack auth-card__form" onSubmit={(event) => void handleSubmit(event)}>
