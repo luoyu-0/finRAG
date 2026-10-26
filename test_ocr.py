@@ -1,21 +1,18 @@
-from paddleocr import PaddleOCR
+import argparse
+from pathlib import Path
 
-print("⏳ 正在加载 OCR 引擎（模型已下载，这次会很快）...")
-# 新版 API 语法：去掉了 use_angle_cls，改成 use_textline_orientation
-ocr = PaddleOCR(lang="ch", use_textline_orientation=True,enable_mkldnn=False)
+from process_docs import extract_text_from_image
 
-img_path = r"C:\Users\wy\Desktop\university\rag\finRAG\data\raw\images\屏幕截图 2026-10-26 223317.png"
 
-print(f"🔍 正在识别: {img_path}")
-# 新版 API 用 predict，不需要传 cls
-result = ocr.predict(img_path)
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="识别单张图片中的文字")
+    parser.add_argument("image", type=Path, help="待识别图片路径")
+    args = parser.parse_args(argv)
+    if not args.image.is_file():
+        parser.error(f"图片不存在：{args.image}")
 
-print("\n================ 识别结果 ================")
-# 新版返回的结果是类似字典的列表
-if result:
-    for res in result:
-        # 提取识别出的文字列表
-        texts = res.get('rec_texts', [])
-        for text in texts:
-            print(text)
-print("==========================================")
+    print(extract_text_from_image(args.image), end="")
+
+
+if __name__ == "__main__":
+    main()

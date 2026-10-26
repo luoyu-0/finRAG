@@ -1,9 +1,9 @@
-import os
 import re
 import json
 import hashlib
 import argparse
 import logging
+import tempfile
 from pathlib import Path
 import pymupdf
 from paddleocr import PaddleOCR
@@ -40,44 +40,41 @@ def clean_web_text(text: str) -> str:
     return text.strip()
 
 def extract_text_from_pdf(pdf_path: Path):
-    doc = pymupdf.open(pdf_path)
     full_text = ""
     page_mapping = []
     current_length = 0
-    
-    for page_num in range(len(doc)):
-        page = doc.load_page(page_num)
-        blocks = page.get_text("blocks")
-        page_text = ""
-        for block in blocks:
-            block_text = block[4].strip()
-            if block_text and not re.match(r'^\d+$', block_text): 
-                page_text += block_text + "\n"
-        
-        if not page_text.strip():
-            logging.info(f"  [OCR触发] PDF {pdf_path.name} 第 {page_num+1} 页无文本层，正在识别...")
-            pix = page.get_pixmap(dpi=150)
-            img_path = BASE_DIR / f"temp_{pdf_path.stem}_{page_num}.png"
-            pix.save(img_path)
-            
-            # 新版 API 调用
-            result = get_ocr().predict(str(img_path))
-            if result:
-                for res in result:
-                    for text in res.get('rec_texts', []):
-                        page_text += text + "\n"
-            os.remove(img_path)
-            
-        if not page_text.strip(): continue
-            
-        page_mapping.append({
-            "page": page_num + 1,
-            "start": current_length,
-            "end": current_length + len(page_text)
-        })
-        full_text += page_text + "\n"
-        current_length = len(full_text)
-    doc.close()
+
+    with pymupdf.open(pdf_path) as doc:
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            blocks = page.get_text("blocks")
+            page_text = ""
+            for block in blocks:
+                block_text = block[4].strip()
+                if block_text and not re.match(r'^\d+$', block_text):
+                    page_text += block_text + "\n"
+
+            if not page_text.strip():
+                logging.info(f"  [OCR触发] PDF {pdf_path.name} 第 {page_num+1} 页无文本层，正在识别...")
+                with tempfile.TemporaryDirectory(prefix="finrag-ocr-") as temp_dir:
+                    img_path = Path(temp_dir) / "page.png"
+                    page.get_pixmap(dpi=150).save(img_path)
+                    result = get_ocr().predict(str(img_path))
+                    if result:
+                        for res in result:
+                            for text in res.get("rec_texts", []):
+                                page_text += text + "\n"
+
+            if not page_text.strip():
+                continue
+
+            page_mapping.append({
+                "page": page_num + 1,
+                "start": current_length,
+                "end": current_length + len(page_text)
+            })
+            full_text += page_text + "\n"
+            current_length = len(full_text)
     return full_text, page_mapping
 
 def extract_text_from_image(img_path: Path):

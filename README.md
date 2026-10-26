@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由和 RAG 在线核心编排。文档导入、OCR、分片、Embedding、真实检索器和 LLM Provider 尚未接入；检索服务未配置时问答接口明确返回 `503`，不会显示虚构答案。
+当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、RAG 在线核心编排，以及独立的文档解析和 OCR 脚本。解析结果尚未接入 Embedding、检索器和 LLM Provider；检索服务未配置时问答接口明确返回 `503`，不会显示虚构答案。
 
 ## 目标范围
 
@@ -131,6 +131,18 @@ docker compose down
 ```
 
 `docker compose down -v` 会同时删除 MySQL、Milvus、MinIO 和 etcd 的本地数据卷，仅在明确需要重置环境时使用。
+
+### 离线文档解析与 OCR
+
+将已获准使用的 `.txt`、`.pdf`、`.jpg`、`.jpeg` 或 `.png` 文件分别放到 `data/raw/txts/`、`data/raw/pdfs/`、`data/raw/images/`。首次使用时自行创建这些目录；`data/raw/` 中的原始文件不会提交到仓库。执行以下命令运行一次性导入容器，结果写入 `data/processed/chunks.jsonl`：
+
+```bash
+docker compose run --rm --no-deps --build backend python process_docs.py
+```
+
+该命令复用后端镜像，但 OCR 在独立的一次性容器中执行，不占用在线问答进程。首次识别扫描件或图片时 PaddleOCR 可能下载模型文件；纯文本文件不会初始化 OCR 模型。每次运行都会覆盖 `chunks.jsonl`；当前脚本只完成解析与切分，尚未将结果写入 Milvus。图片单文件调试可运行 `docker compose run --rm --no-deps backend python test_ocr.py "/app/data/raw/images/文件名.png"`。
+
+文件解析回归测试使用 `cd backend` 后执行 `python -m pytest tests/integration/test_document_import.py`。测试用临时 PDF 和 OCR Stub，不下载模型，也不调用外部服务。
 
 ### Windows 常见启动问题
 

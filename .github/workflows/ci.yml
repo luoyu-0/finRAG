@@ -116,6 +116,10 @@ jobs:
         working-directory: .
         run: docker compose up -d --build --wait --wait-timeout 180 mysql backend frontend
 
+      - name: 验证容器内导入命令
+        working-directory: .
+        run: docker compose run --rm --no-deps backend python process_docs.py --help
+
       - name: 端到端冒烟测试
         run: npm run test:e2e
 
