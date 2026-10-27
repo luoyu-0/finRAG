@@ -147,6 +147,48 @@ export class ApiClient {
     return this.request<T>("DELETE", path, undefined, options);
   }
 
+  /**
+   * 以 `multipart/form-data` 提交，用于文件上传（契约 §8.1）。
+   *
+   * 不设置 `Content-Type`，交由浏览器自动写入 boundary。
+   * 上传是一次性动作，这里不做 401 换票重试，失败时统一走未授权回调。
+   */
+  async postForm<T>(path: string, form: FormData, options: RequestOptions = {}): Promise<T> {
+    const url = `${this.baseUrl}${path}${buildQueryString(options.query)}`;
+
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = this.getAccessToken?.();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, {
+        method: "POST",
+        headers,
+        body: form,
+        signal: options.signal,
+      });
+    } catch (cause) {
+      throw toNetworkError(cause);
+    }
+
+    if (!response.ok) {
+      const error = toApiError(
+        response.status,
+        await this.readBodyText(response),
+        response.statusText,
+      );
+      if (error.isUnauthorized) {
+        this.onUnauthorized?.(error);
+      }
+      throw error;
+    }
+
+    return await this.parseSuccessBody<T>(response);
+  }
+
   private async readBodyText(response: Response): Promise<string> {
     try {
       return await response.text();
