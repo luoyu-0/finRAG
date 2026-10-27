@@ -29,6 +29,13 @@ class QuestionRequest(BaseModel):
             raise ValueError("effective_at 必须包含时区")
         return value
 
+    @field_validator("knowledge_base_ids")
+    @classmethod
+    def require_knowledge_base_ids(cls, value: list[str]) -> list[str]:
+        if any(not item.strip() for item in value):
+            raise ValueError("知识库 ID 不能为空")
+        return value
+
 
 class CitationResponse(BaseModel):
     """来源引用。"""

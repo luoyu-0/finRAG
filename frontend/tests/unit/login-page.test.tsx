@@ -40,10 +40,10 @@ describe("登录页", () => {
     expect(screen.getByText("管理员（演示）")).toBeInTheDocument();
   });
 
-  it("演示数据模式下提示可用账户", () => {
+  it("演示数据模式下不展示固定凭据", () => {
     renderAt("/login");
 
-    expect(screen.getByText(/当前为演示数据模式/)).toBeInTheDocument();
-    expect(screen.getByText(/admin \/ finrag2026/)).toBeInTheDocument();
+    expect(screen.getByText(/单元测试演示数据模式/)).toBeInTheDocument();
+    expect(screen.queryByText(/finrag2026/)).not.toBeInTheDocument();
   });
 });

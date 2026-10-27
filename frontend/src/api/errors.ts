@@ -80,6 +80,9 @@ export function toApiError(status: number, bodyText: string, statusText = ""): A
 
 /** 把网络层异常归一化为 ApiError。 */
 export function toNetworkError(cause: unknown): ApiError {
+  if (cause instanceof Error && cause.name === "AbortError") {
+    return new ApiError(0, "REQUEST_TIMEOUT", "请求超时，请稍后重试。");
+  }
   const detail = cause instanceof Error ? cause.message : String(cause);
   return new ApiError(0, NETWORK_ERROR_CODE, `无法连接服务：${detail}`);
 }

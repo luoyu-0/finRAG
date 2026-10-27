@@ -112,10 +112,16 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-finrag}
       MYSQL_USER: ${MYSQL_USER:-finrag}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-admin}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?请在 .env 中设置至少 32 字符的 JWT_SECRET_KEY}
       MILVUS_HOST: milvus
       MILVUS_PORT: "19530"
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
       TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./data/raw:/app/data/raw:ro
     ports:
       - "${BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     healthcheck:
@@ -130,6 +136,8 @@ services:
       start_period: 10s
     depends_on:
       mysql:
+        condition: service_healthy
+      milvus:
         condition: service_healthy
     networks:
       - finrag

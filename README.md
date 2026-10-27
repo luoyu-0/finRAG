@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库已完成协作目录和 Docker 开发环境初始化，提供后端健康检查、前端占位页以及与具体模型和存储解耦的 RAG 在线核心编排。文档导入、OCR、分片、Embedding、真实检索器、LLM Provider、鉴权和问答 HTTP 路由尚未接入。
+当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/文字型 PDF 离线导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。首次使用需要配置 API Key 并执行离线导入；缺少 Key 时问答返回 `503`，不会显示虚构答案。扫描页 OCR 仍待接入。
 
 ## 目标范围
 
@@ -24,14 +24,14 @@
 | 前端 | React、TypeScript |
 | 结构化存储 | MySQL |
 | 向量存储 | Milvus |
-| LLM | DeepSeek API 为当前候选；是否满足课程“开源可商用”要求仍待确认 |
+| LLM | DeepSeek API 已接入；是否满足课程“开源可商用”要求仍待确认 |
 | Embedding | [BAAI/bge-small-zh-v1.5](https://huggingface.co/BAAI/bge-small-zh-v1.5)，512 维；通过 Provider 保留替换能力 |
 | OCR | PaddleOCR 为主，Tesseract 为备用和对照基线 |
 | 用户与鉴权 | 本地账户、短时 JWT Access Token、可撤销 Refresh Session、基础 RBAC |
 | 测试 | pytest、前端单元测试、端到端测试、接口测试 |
 | 部署 | Docker、Docker Compose |
 
-LLM、Embedding、OCR 和向量检索将通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。文本型 PDF 优先按页直接提取文本，仅对扫描页、无有效文本层或提取质量不合格的页面执行 OCR；复杂表格、印章和异常版面可再进入版面分析或视觉模型复核。Embedding 初选轻量中文模型 `BAAI/bge-small-zh-v1.5`，兼顾中文检索效果与本地部署成本；获得正式数据后再决定是否需要替换。
+LLM、Embedding 和向量检索通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。当前 TXT 和文字型 PDF 按页原生提取；无文字页给出告警并跳过，待 OCR 接入后补齐。Embedding 使用 `BAAI/bge-small-zh-v1.5` 的 ONNX 版本，获得正式数据后再决定是否需要替换。
 
 用户系统采用最小可用设计：默认由管理员创建账户，不开放公开注册；管理员维护知识库，普通用户使用问答、历史和收藏。密码只保存安全哈希，Refresh Token 仅保存摘要。用户鉴权、目录边界、PDF 与 OCR 路由统一记录在 [系统架构](docs/architecture/系统架构.md)。
 
@@ -98,27 +98,55 @@ node --version
 Copy-Item .env.example .env
 ```
 
-打开 `.env`，替换两个 MySQL 示例密码，然后执行：
+打开 `.env`，替换两个 MySQL 示例密码，并设置 `JWT_SECRET_KEY`（至少 32 字符的随机值）和首次启动用的 `ADMIN_BOOTSTRAP_PASSWORD`（至少 12 字符）。例如可用 `python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成密钥。初次启动会在 MySQL 自动建立用户、刷新会话和问答历史表，并创建 `ADMIN_BOOTSTRAP_USERNAME` 指定的管理员；已有用户时不会重置密码。管理员建立后可从 `.env` 删除初始密码并重启服务。
 
-```bash
+在 Windows PowerShell 中执行以下脚本。脚本会运行 `docker compose up -d --build --wait`，全部服务健康后读取实际映射端口并打印前端入口；启动失败时不会打印入口。
+
+```powershell
 docker compose config
-docker compose up -d --build
+./scripts/start.ps1
 docker compose ps
 ```
 
+直接运行 `docker compose up -d --build --wait` 仍可启动服务，但 Compose 本身不会在成功后额外打印本项目的入口地址。Linux 环境可在命令成功后执行 `docker compose port frontend 80` 查看实际映射端口。
+
 首次启动需要下载并构建多个镜像，耗时取决于网络。所有服务健康后可以访问：
 
-- 前端占位页：<http://127.0.0.1:3000>
+- 前端登录与问答页：<http://127.0.0.1:3000>
 - 后端 API 文档：<http://127.0.0.1:8000/api/docs>
 - 后端健康检查：<http://127.0.0.1:8000/api/v1/health>
 - Milvus WebUI：<http://127.0.0.1:9091/webui/>
 - MinIO 控制台：<http://127.0.0.1:9001>
 
-首次构建会在容器内执行后端依赖安装、前端 TypeScript 类型检查和 Vite 生产构建，因此无需在宿主机预装 Node.js 或 Python。可通过以下命令确认所有服务是否已经进入 `healthy` 状态：
+首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
 
 ```bash
 docker compose ps
 ```
+
+### 导入 TXT 与文字型 PDF
+
+将已获授权的 `.txt`、`.pdf` 放入 `data/raw/`，可建子目录。默认知识库 ID 为 `default`；缺少状态元数据时按团队本次决定默认标为 `active` 并参与检索。正式数据到位后应核对时效性，过期文件请在 `data/raw/metadata.json` 中显式标为 `inactive` 后重新导入。元数据以相对路径为键：
+
+```json
+{
+  "制度/示例.pdf": {
+    "title": "示例制度",
+    "policy_status": "active",
+    "effective_from": "2026-01-01T00:00:00+08:00",
+    "effective_to": null,
+    "source_url": "https://example.org/policy.pdf"
+  }
+}
+```
+
+导入命令会按文件内容生成稳定版本 ID，再次运行会更新同一文件的索引；单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
+
+```powershell
+docker compose exec backend python -m app.workers.import_documents
+```
+
+导入失败会列出文件和原因，不能提取文本的 PDF 需等待 OCR 或先提供可检索 TXT。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；上传管理界面、导入任务进度和 PDF 复杂版面处理仍未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
 
 停止容器但保留数据：
 
@@ -163,6 +191,7 @@ npm run build         # 类型检查 + Vite 生产构建
 
 ```bash
 npx playwright install chromium
+$env:E2E_ADMIN_PASSWORD="<与 .env 中的初始管理员密码一致>"
 npm run test:e2e
 ```
 
@@ -208,6 +237,9 @@ docker compose up -d --build mysql backend frontend
 - [x] 在 Windows 11 + Docker Desktop 上完成全量容器构建和健康检查验证
 - [x] 完成用户鉴权架构与选择性 OCR 路由规划
 - [x] 实现 RAG 在线核心领域模型、混合检索融合、上下文、引用与证据支持度
-- [ ] 接入关键词检索、Milvus、Reranker 和最终确认的 LLM Provider
-- [ ] 实现最小可运行的端到端流程
+- [x] 接入 Milvus 向量检索、BGE Embedding 和 DeepSeek 生成 Provider
+- [x] 实现 TXT/文字型 PDF 到向量索引的离线导入
+- [x] 接入 MySQL 中文关键词检索与向量融合
+- [ ] 接入 Reranker、OCR 和导入管理界面
+- [ ] 用正式数据验证端到端问答质量与课程指标
 

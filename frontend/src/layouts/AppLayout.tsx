@@ -3,6 +3,7 @@
  *
  * 导航中未实现的模块显式标注「待实现」，避免使用者以为功能缺失是缺陷。
  */
+import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { Badge } from "../components/Badge";
@@ -26,6 +27,7 @@ const ROLE_TEXT = { admin: "管理员", user: "普通用户" } as const;
 export function AppLayout() {
   const { user, logout, mockMode } = useAuth();
   const location = useLocation();
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   const current = NAV_ITEMS.find((item) => location.pathname.startsWith(item.to));
 
@@ -79,9 +81,17 @@ export function AppLayout() {
                 </Badge>
               </span>
             ) : null}
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void logout()}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                setLogoutError(null);
+                void logout().catch(() => setLogoutError("退出失败，请重试。"));
+              }}
+            >
               退出登录
             </button>
+            {logoutError ? <span role="alert">{logoutError}</span> : null}
           </div>
         </header>
 

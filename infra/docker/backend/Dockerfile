@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --requirement requirements.txt
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-zh-v1.5', cache_dir='/opt/models')"
 
 COPY backend/app ./app
 

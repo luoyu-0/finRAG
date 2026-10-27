@@ -9,7 +9,7 @@ import type { FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../../api/errors";
-import { MOCK_ACCOUNTS } from "../../api/mock";
+import { PageState } from "../../components/PageState";
 import { useAuth } from "../../stores/auth";
 
 interface LocationState {
@@ -28,6 +28,10 @@ export function LoginPage() {
 
   if (status === "authenticated") {
     return <Navigate to="/qa" replace />;
+  }
+
+  if (status === "initializing") {
+    return <PageState kind="loading" title="正在恢复会话…" description="请稍候。" />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -111,19 +115,7 @@ export function LoginPage() {
             </button>
           </form>
 
-          {mockMode ? (
-            <div className="auth-card__footer">
-              当前为演示数据模式，可使用以下账户登录：
-              {MOCK_ACCOUNTS.map((account) => (
-                <div key={account.username}>
-                  <code>
-                    {account.username} / {account.password}
-                  </code>
-                  （{account.role === "admin" ? "管理员" : "普通用户"}）
-                </div>
-              ))}
-            </div>
-          ) : null}
+          {mockMode ? <div className="auth-card__footer">当前为单元测试演示数据模式。</div> : null}
         </div>
       </main>
     </div>

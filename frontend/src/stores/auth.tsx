@@ -12,8 +12,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 
 import { fetchCurrentUser, login as loginRequest, logout as logoutRequest } from "../api/auth";
-import { MOCK_ENABLED } from "../api/mock";
-import { apiClient, setAccessToken, setUnauthorizedHandler } from "../api/session";
+import { MOCK_ENABLED } from "../api/mode";
+import {
+  apiClient,
+  refreshAccessToken,
+  setAccessToken,
+  setUnauthorizedHandler,
+} from "../api/session";
 import type { User } from "../types/auth";
 
 export type AuthStatus = "initializing" | "anonymous" | "authenticated";
@@ -61,9 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const refreshed = await apiClient.post<{ access_token: string }>("/auth/refresh");
-        setAccessToken(refreshed.access_token);
-        const current = await fetchCurrentUser(apiClient, refreshed.access_token);
+        const token = await refreshAccessToken();
+        const current = await fetchCurrentUser(apiClient, token);
         if (!cancelled) {
           setUser(current);
           setStatus("authenticated");
@@ -89,16 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await logoutRequest(apiClient);
-    } finally {
-      // 与 clearSession 等价；此处内联是为了让依赖数组保持为空，
-      // 避免 React Compiler 判定 clearSession 为多余依赖。
-      setAccessToken(null);
-      setUser(null);
-      setStatus("anonymous");
-    }
-  }, []);
+    await logoutRequest(apiClient);
+    clearSession();
+  }, [clearSession]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ user, status, mockMode: MOCK_ENABLED, login, logout }),
