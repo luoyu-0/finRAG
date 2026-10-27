@@ -48,6 +48,10 @@ class DeepSeekProviderTests(unittest.TestCase):
             request = call.call_args.args[0]
             body = json.loads(request.data)
             self.assertEqual(body["response_format"], {"type": "json_object"})
+            self.assertIn("Markdown", body["messages"][0]["content"])
+            self.assertIn("### 结论", body["messages"][0]["content"])
+            self.assertIn("列表逐项说明", body["messages"][0]["content"])
+            self.assertIn("citation_labels 返回空数组", body["messages"][0]["content"])
             self.assertEqual(request.get_header("Authorization"), "Bearer test-key")
 
     def test_rejects_truncated_output(self) -> None:

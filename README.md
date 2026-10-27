@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/文字型 PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。另有独立的 PaddleOCR 文件解析流程；扫描件解析结果尚未接入索引导入。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。
+当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。
 
 ## 目标范围
 
@@ -31,7 +31,7 @@
 | 测试 | pytest、前端单元测试、端到端测试、接口测试 |
 | 部署 | Docker、Docker Compose |
 
-LLM、Embedding 和向量检索通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。在线索引导入对 TXT 和文字型 PDF 按页原生提取，无文字页给出告警并跳过；独立的文件解析流程可调用 PaddleOCR，但尚未写入在线索引。Embedding 使用 `BAAI/bge-small-zh-v1.5` 的 ONNX 版本，获得正式数据后再决定是否需要替换。
+LLM、Embedding 和向量检索通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。离线索引导入对 TXT 和 PDF 按页原生提取，使用 `--ocr` 时仅对无文字层的 PDF 页面调用 PaddleOCR，并将识别结果写入索引。Embedding 使用 `BAAI/bge-small-zh-v1.5` 的 ONNX 版本，获得正式数据后再决定是否需要替换。
 
 用户系统默认创建 `admin / finrag2026` 管理员，登录页允许用用户名和密码注册普通账户；注册后直接登录。密码只保存安全哈希，Refresh Token 仅保存摘要。用户鉴权、目录边界、PDF 与 OCR 路由统一记录在 [系统架构](docs/architecture/系统架构.md)。
 
@@ -118,13 +118,13 @@ docker compose ps
 - Milvus WebUI：<http://127.0.0.1:9091/webui/>
 - MinIO 控制台：<http://127.0.0.1:9001>
 
-首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
+首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段现返回 Markdown 字符串，引用和证据支持度仍在独立字段中；前端 Markdown 渲染由后续适配完成。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
 
 ```bash
 docker compose ps
 ```
 
-### 导入 TXT 与文字型 PDF
+### 导入 TXT 与 PDF
 
 将已获授权的 `.txt`、`.pdf` 放入 `data/raw/`，可建子目录。默认知识库 ID 为 `default`；缺少状态元数据时按团队本次决定默认标为 `active` 并参与检索。正式数据到位后应核对时效性，过期文件请在 `data/raw/metadata.json` 中显式标为 `inactive` 后重新导入。元数据以相对路径为键：
 
@@ -140,13 +140,19 @@ docker compose ps
 }
 ```
 
-导入命令会按文件内容生成稳定版本 ID，再次运行会更新同一文件的索引；单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
+导入命令会按文件内容生成稳定版本 ID，并结合文档 ID 生成分块 ID，避免内容相同的不同文件发生主键冲突；再次运行会更新同一文件的索引。由旧版分块 ID 规则升级时需重新运行导入命令以重建索引，已有问答历史中的旧分块 ID 可能无法再定位到新索引。单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
 
 ```powershell
 docker compose exec backend python -m app.workers.import_documents
 ```
 
-导入失败会列出文件和原因，不能提取文本的 PDF 需等待 OCR 或先提供可检索 TXT。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；上传管理界面、导入任务进度和 PDF 复杂版面处理仍未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
+扫描版或部分页面没有文字层的 PDF，使用一次性容器执行选择性 OCR 导入。首次运行会下载 PaddleOCR 模型并保存在 Docker 卷中；处理时间取决于扫描页数。识别页会记录“需人工复核”告警，重要制度和条文应核对原 PDF。若只需导入部分文件，在 `data/processed/ocr-targets.txt` 中逐行写入相对于 `data/raw/` 的路径，再加 `--paths-file /app/data/processed/ocr-targets.txt`。
+
+```powershell
+docker compose run --rm --no-deps backend python -m app.workers.import_documents --ocr
+```
+
+导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；上传管理界面、导入任务进度和 PDF 复杂版面处理仍未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
 
 停止容器但保留数据：
 
@@ -154,7 +160,7 @@ docker compose exec backend python -m app.workers.import_documents
 docker compose down
 ```
 
-`docker compose down -v` 会同时删除 MySQL、Milvus、MinIO 和 etcd 的本地数据卷，仅在明确需要重置环境时使用。
+`docker compose down -v` 会同时删除 MySQL、Milvus、MinIO、etcd 数据卷和 OCR 模型缓存卷，仅在明确需要重置环境时使用。
 
 ### 离线文档解析与 OCR
 
@@ -164,7 +170,7 @@ docker compose down
 docker compose run --rm --no-deps --build backend python process_docs.py
 ```
 
-该命令复用后端镜像，但 OCR 在独立的一次性容器中执行，不占用在线问答进程。首次识别扫描件或图片时 PaddleOCR 可能下载模型文件；纯文本文件不会初始化 OCR 模型。每次运行都会覆盖 `chunks.jsonl`；当前脚本只完成解析与切分，尚未将结果写入 Milvus。图片单文件调试可运行 `docker compose run --rm --no-deps backend python test_ocr.py "/app/data/raw/images/文件名.png"`。
+该命令复用后端镜像，但 OCR 在独立的一次性容器中执行，不占用在线问答进程。首次识别扫描件或图片时 PaddleOCR 可能下载模型文件；纯文本文件不会初始化 OCR 模型。每次运行都会覆盖 `chunks.jsonl`；这个独立调试脚本只完成解析与切分，不写入 Milvus。需要参与问答的 PDF 请使用上文的 `app.workers.import_documents --ocr` 命令。图片单文件调试可运行 `docker compose run --rm --no-deps backend python test_ocr.py "/app/data/raw/images/文件名.png"`。
 
 文件解析回归测试使用 `cd backend` 后执行 `python -m pytest tests/integration/test_document_import.py`。测试用临时 PDF 和 OCR Stub，不下载模型，也不调用外部服务。
 
@@ -252,6 +258,6 @@ docker compose up -d --build mysql backend frontend
 - [x] 接入 Milvus 向量检索、BGE Embedding 和 DeepSeek 生成 Provider
 - [x] 实现 TXT/文字型 PDF 到向量索引的离线导入
 - [x] 接入 MySQL 中文关键词检索与向量融合
-- [ ] 接入 Reranker、将 OCR 解析结果写入在线索引，并实现导入管理界面
+- [ ] 接入 Reranker，并实现导入管理界面
 - [ ] 用正式数据验证端到端问答质量与课程指标
 

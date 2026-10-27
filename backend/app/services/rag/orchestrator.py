@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Sequence
 
 from app.domain.rag import (
@@ -68,17 +69,7 @@ class RagService:
         context = self._context_assembler.assemble(ranked[: query.top_k])
 
         if not context.items:
-            return RagAnswer(
-                answer="未在当前有效制度中检索到足够依据，暂无法回答该问题。",
-                citations=(),
-                evidence_support=EvidenceSupport(
-                    score=0.0,
-                    level=EvidenceSupportLevel.NONE,
-                    method=self._evidence_scorer.method,
-                    explanation="未检索到可用于回答的有效证据；该分数不是答案正确概率。",
-                ),
-                warnings=tuple(warnings),
-            )
+            return self._no_evidence(warnings)
 
         try:
             generated = await self._generator.generate(query, context)
@@ -92,7 +83,7 @@ class RagService:
         context_by_label = {item.label: item for item in context.items}
         labels = tuple(dict.fromkeys(generated.citation_labels))
         if not labels:
-            raise GenerationContractError("生成器未返回任何证据引用")
+            return self._no_evidence(warnings)
         unknown_labels = [label for label in labels if label not in context_by_label]
         if unknown_labels:
             joined = ", ".join(unknown_labels)
@@ -107,11 +98,30 @@ class RagService:
             warnings.append("生成上下文因预算限制被截断")
 
         return RagAnswer(
-            answer=answer,
+            answer=self._markdown_answer(answer),
             citations=citations,
             evidence_support=support,
             warnings=tuple(warnings),
         )
+
+    def _no_evidence(self, warnings: list[str]) -> RagAnswer:
+        return RagAnswer(
+            answer="### 结论\n\n未在当前有效制度中检索到足够依据，暂无法回答该问题。",
+            citations=(),
+            evidence_support=EvidenceSupport(
+                score=0.0,
+                level=EvidenceSupportLevel.NONE,
+                method=self._evidence_scorer.method,
+                explanation="没有可用于回答的有效证据；该分数不是答案正确概率。",
+            ),
+            warnings=tuple(warnings),
+        )
+
+    @staticmethod
+    def _markdown_answer(answer: str) -> str:
+        if re.match(r"^#{1,6} +\S", answer):
+            return answer
+        return f"### 结论\n\n{answer}"
 
     async def _retrieve(
         self, query: RagQuery
