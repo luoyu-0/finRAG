@@ -1,12 +1,15 @@
-"""TXT 与文字型 PDF 的原生解析及稳定分块。"""
+"""TXT 与 PDF 的逐页解析、选择性 OCR 及稳定分块。"""
 
 from __future__ import annotations
 
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader
+
+from app.services.ocr.ports import OCRProvider
 
 
 ARTICLE_RE = re.compile(r"第[零一二三四五六七八九十百千0-9]+条")
@@ -28,18 +31,41 @@ class ParsedDocument:
     warnings: tuple[str, ...]
 
 
-def parse_document(path: Path) -> ParsedDocument:
-    """逐页提取文本；无文本层的 PDF 页保留告警供后续 OCR。"""
+def parse_document(path: Path, *, ocr: OCRProvider | None = None) -> ParsedDocument:
+    """逐页提取文本；配置 OCR 时仅识别无文字层的 PDF 页。"""
     suffix = path.suffix.lower()
     warnings: list[str] = []
     if suffix == ".pdf":
         reader = PdfReader(path)
         pages = []
-        for index, page in enumerate(reader.pages, start=1):
-            content = page.extract_text() or ""
-            pages.append((index, content))
-            if not content.strip():
-                warnings.append(f"第 {index} 页无可提取文字，尚需 OCR")
+        rendered_pdf = None
+        try:
+            for index, page in enumerate(reader.pages, start=1):
+                content = page.extract_text() or ""
+                if not content.strip() and ocr is not None:
+                    try:
+                        if rendered_pdf is None:
+                            import pymupdf
+
+                            rendered_pdf = pymupdf.open(path)
+                        with tempfile.TemporaryDirectory(prefix="finrag-ocr-") as directory:
+                            image_path = Path(directory) / "page.png"
+                            rendered_pdf.load_page(index - 1).get_pixmap(dpi=150).save(image_path)
+                            content = ocr.recognize(image_path)
+                    except Exception as exc:
+                        warnings.append(f"第 {index} 页 OCR 失败：{type(exc).__name__}：{exc}")
+                    else:
+                        if content.strip():
+                            warnings.append(f"第 {index} 页经 OCR 识别，需人工复核")
+                pages.append((index, content))
+                if not content.strip():
+                    warnings.append(
+                        f"第 {index} 页 OCR 未获得可用文字" if ocr is not None
+                        else f"第 {index} 页无可提取文字，尚需 OCR"
+                    )
+        finally:
+            if rendered_pdf is not None:
+                rendered_pdf.close()
         page_count = len(pages)
     elif suffix == ".txt":
         data = path.read_bytes()
@@ -81,5 +107,8 @@ def parse_document(path: Path) -> ParsedDocument:
                     break
                 position = max(position + 1, end - OVERLAP)
     if not chunks:
+        if ocr is not None:
+            failure = next((warning for warning in warnings if "OCR 失败" in warning), None)
+            raise ValueError(f"文件没有可用文字；{failure or 'OCR 未获得可用文字'}")
         raise ValueError("文件没有可用文字；扫描件需先完成 OCR")
     return ParsedDocument(tuple(chunks), page_count, tuple(warnings))

@@ -1,4 +1,4 @@
-"""将 data/raw 中的 TXT 与文字型 PDF 导入 MySQL 和 Milvus。"""
+"""将 data/raw 中的 TXT 与 PDF 导入 MySQL 和 Milvus。"""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from app.core.database import initialize_database, session_factory
 from app.repositories.document_models import ChunkRecord, DocumentRecord
 from app.repositories.milvus_chunks import MilvusChunkRepository
 from app.services.documents.native_import import parse_document
+from app.services.ocr.ports import OCRProvider
 from app.services.rag.embedding import BgeEmbeddingProvider
 
 
@@ -27,9 +28,17 @@ def _date(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _chunk_ids(document_id: str, version_id: str, count: int) -> list[str]:
+    return [
+        hashlib.sha256(f"{document_id}:{version_id}:{index}".encode()).hexdigest()[:32]
+        for index in range(count)
+    ]
+
+
 def import_file(
     path: Path, relative_path: str, knowledge_base_id: str,
     metadata: dict, repository: MilvusChunkRepository, embedding: BgeEmbeddingProvider,
+    *, ocr: OCRProvider | None = None,
 ) -> tuple[int, tuple[str, ...]]:
     raw = path.read_bytes()
     if len(raw) > 50 * 1024 * 1024:
@@ -44,12 +53,11 @@ def import_file(
     effective_to = _date(metadata.get("effective_to"))
     if effective_from and effective_to and effective_from > effective_to:
         raise ValueError("生效截止时间不能早于开始时间")
-    parsed = parse_document(path)
+    parsed = parse_document(path, ocr=ocr)
     title = metadata.get("title") or path.stem
     source_url = metadata.get("source_url")
     chunks = parsed.chunks
-    ids = [hashlib.sha256(f"{version_id}:{index}".encode()).hexdigest()[:32]
-           for index in range(len(chunks))]
+    ids = _chunk_ids(document_id, version_id, len(chunks))
     with session_factory()() as db:
         old_ids = list(db.scalars(select(ChunkRecord.id).where(ChunkRecord.document_id == document_id)))
         repository.delete_ids(old_ids)
@@ -96,9 +104,11 @@ def import_file(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="导入 TXT 与文字型 PDF 制度文件")
+    parser = argparse.ArgumentParser(description="导入 TXT 与 PDF 制度文件")
     parser.add_argument("--root", type=Path, default=Path("/app/data/raw"))
     parser.add_argument("--knowledge-base-id", default="default")
+    parser.add_argument("--ocr", action="store_true", help="对无文字层的 PDF 页面使用 PaddleOCR")
+    parser.add_argument("--paths-file", type=Path, help="只导入文件中列出的相对路径，每行一个")
     args = parser.parse_args()
     root = args.root.resolve()
     if not root.is_dir():
@@ -107,11 +117,35 @@ def main() -> None:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
     if not isinstance(metadata, dict):
         parser.error("metadata.json 顶层必须是文件路径到元数据的对象")
-    files = sorted(path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in (".txt", ".pdf"))
+    files = sorted(
+        path for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() in (".txt", ".pdf")
+    )
+    if args.paths_file:
+        requested = [
+            line.strip() for line in args.paths_file.read_text(encoding="utf-8-sig").splitlines()
+            if line.strip()
+        ]
+        files = []
+        for relative in requested:
+            path = (root / relative).resolve()
+            if (
+                not path.is_relative_to(root) or not path.is_file()
+                or path.suffix.lower() not in (".txt", ".pdf")
+            ):
+                parser.error(f"无效的导入路径：{relative}")
+            files.append(path)
+        files = sorted(set(files))
     if not files:
         parser.error("目录中没有 TXT 或 PDF 文件")
     initialize_database()
     embedding = BgeEmbeddingProvider()
+    if args.ocr:
+        from app.services.ocr.paddle import PaddleOCRProvider
+
+        ocr: OCRProvider | None = PaddleOCRProvider()
+    else:
+        ocr = None
     repository = MilvusChunkRepository(
         f"http://{os.getenv('MILVUS_HOST', 'milvus')}:{os.getenv('MILVUS_PORT', '19530')}",
         embedding,
@@ -123,7 +157,7 @@ def main() -> None:
         try:
             count, warnings = import_file(
                 path, relative, args.knowledge_base_id, metadata.get(relative, {}),
-                repository, embedding,
+                repository, embedding, ocr=ocr,
             )
             print(f"已导入 {relative}：{count} 个分块")
             for warning in warnings:

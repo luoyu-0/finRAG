@@ -54,7 +54,36 @@ class NativeImportTests(unittest.TestCase):
             page[NameObject("/Contents")] = writer._add_object(stream)
             with path.open("wb") as output:
                 writer.write(output)
-            parsed = parse_document(path)
+            class UnexpectedOCR:
+                def recognize(self, image_path: Path) -> str:
+                    raise AssertionError("文字型 PDF 不应调用 OCR")
+
+            parsed = parse_document(path, ocr=UnexpectedOCR())
         self.assertEqual(parsed.page_count, 1)
         self.assertEqual(parsed.chunks[0].page_number, 1)
         self.assertIn("Bank record retention", parsed.chunks[0].text)
+
+    def test_scanned_pdf_page_uses_ocr_and_keeps_page_number(self) -> None:
+        class StubOCR:
+            calls = 0
+            image_existed = False
+
+            def recognize(self, image_path: Path) -> str:
+                self.calls += 1
+                self.image_existed = image_path.is_file()
+                return "第一条 扫描页内容。"
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "扫描制度.pdf"
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            with path.open("wb") as output:
+                writer.write(output)
+            ocr = StubOCR()
+            parsed = parse_document(path, ocr=ocr)
+
+        self.assertEqual(ocr.calls, 1)
+        self.assertTrue(ocr.image_existed)
+        self.assertEqual(parsed.chunks[0].page_number, 1)
+        self.assertEqual(parsed.chunks[0].article_number, "第一条")
+        self.assertIn("OCR", parsed.warnings[0])
