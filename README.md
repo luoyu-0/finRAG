@@ -100,15 +100,15 @@ Copy-Item .env.example .env
 
 打开 `.env`，替换两个 MySQL 示例密码。本地开发可将 `JWT_SECRET_KEY` 留空，使用固定开发密钥；正式环境仍须配置独立密钥。启动时确保 `admin / finrag2026` 可用；已有管理员若密码不同，会同步为配置的默认密码并撤销旧刷新会话。其他用户可在登录页自行注册。
 
-在 Windows PowerShell 中执行以下脚本。脚本会运行 `docker compose up -d --build --wait`，全部服务健康后读取实际映射端口并打印前端入口；启动失败时不会打印入口。
+在 Windows PowerShell 中，首次启动或修改 Dockerfile、依赖、前端代码后使用 `-Build` 重建镜像：
 
 ```powershell
 docker compose config
-./scripts/start.ps1
+./scripts/start.ps1 -Build
 docker compose ps
 ```
 
-直接运行 `docker compose up -d --build --wait` 仍可启动服务，但 Compose 本身不会在成功后额外打印本项目的入口地址。Linux 环境可在命令成功后执行 `docker compose port frontend 80` 查看实际映射端口。
+日常启动只需运行 `./scripts/start.ps1`，复用已有镜像。脚本会等待全部服务健康，再读取实际映射端口并打印前端入口；启动失败时不会打印入口。等价的直接命令分别是 `docker compose up -d --build --wait`（重建）和 `docker compose up -d --wait`（复用镜像）。Compose 本身不会在成功后额外打印本项目的入口地址；Linux 环境可执行 `docker compose port frontend 80` 查看实际映射端口。
 
 首次启动需要下载并构建多个镜像，耗时取决于网络。所有服务健康后可以访问：
 
@@ -118,7 +118,7 @@ docker compose ps
 - Milvus WebUI：<http://127.0.0.1:9091/webui/>
 - MinIO 控制台：<http://127.0.0.1:9001>
 
-首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段现返回 Markdown 字符串，引用和证据支持度仍在独立字段中；前端 Markdown 渲染由后续适配完成。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
+首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。后端镜像构建时还会通过 Debian 软件源安装 PaddleOCR/OpenCV 所需的系统库；这不是容器每次启动都要执行的步骤。Compose 默认使用清华 Debian 镜像站加快当前开发环境的首次构建，其他网络可在 `.env` 中设置 `DEBIAN_MIRROR` 和 `DEBIAN_SECURITY_MIRROR` 切换软件源。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段现返回 Markdown 字符串，引用和证据支持度仍在独立字段中；前端 Markdown 渲染由后续适配完成。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
 
 ```bash
 docker compose ps
@@ -167,7 +167,7 @@ docker compose down
 将已获准使用的 `.txt`、`.pdf`、`.jpg`、`.jpeg` 或 `.png` 文件分别放到 `data/raw/txts/`、`data/raw/pdfs/`、`data/raw/images/`。首次使用时自行创建这些目录；`data/raw/` 中的原始文件不会提交到仓库。执行以下命令运行一次性导入容器，结果写入 `data/processed/chunks.jsonl`：
 
 ```bash
-docker compose run --rm --no-deps --build backend python process_docs.py
+docker compose run --rm --no-deps backend python process_docs.py
 ```
 
 该命令复用后端镜像，但 OCR 在独立的一次性容器中执行，不占用在线问答进程。首次识别扫描件或图片时 PaddleOCR 可能下载模型文件；纯文本文件不会初始化 OCR 模型。每次运行都会覆盖 `chunks.jsonl`；这个独立调试脚本只完成解析与切分，不写入 Milvus。需要参与问答的 PDF 请使用上文的 `app.workers.import_documents --ocr` 命令。图片单文件调试可运行 `docker compose run --rm --no-deps backend python test_ocr.py "/app/data/raw/images/文件名.png"`。
