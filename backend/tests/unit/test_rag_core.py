@@ -109,6 +109,7 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(answer.citations[0].source.chunk_id, "active")
+        self.assertTrue(answer.answer.startswith("### 结论\n\n"))
         self.assertNotIn("已失效制度证据", generator.last_context)
         self.assertEqual(answer.evidence_support.level, EvidenceSupportLevel.STRONG)
 
@@ -120,7 +121,20 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(generator.calls, 0)
         self.assertEqual(answer.citations, ())
+        self.assertTrue(answer.answer.startswith("### 结论\n\n"))
         self.assertEqual(answer.evidence_support.level, EvidenceSupportLevel.NONE)
+
+    async def test_preserves_structured_markdown_answer(self) -> None:
+        hit = RetrievalHit(text="限额证据", source=source("chunk-1"))
+        markdown = "### 结论\n\n限额适用。\n\n### 具体规定\n\n- **单日限额**：1 万元。"
+        service = RagService(
+            [StubRetriever("keyword", [hit])],
+            StubGenerator(GeneratorOutput(markdown, ("S1",))),
+        )
+
+        answer = await service.answer(RagQuery("限额是多少？"))
+
+        self.assertEqual(answer.answer, markdown)
 
     async def test_degrades_when_one_retriever_fails(self) -> None:
         hit = RetrievalHit(text="仍可使用的证据", source=source("chunk-1"))
@@ -158,15 +172,18 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(GenerationContractError):
             await service.answer(RagQuery("测试越界引用"))
 
-    async def test_rejects_answer_without_citation(self) -> None:
+    async def test_returns_no_evidence_when_generator_omits_citations(self) -> None:
         hit = RetrievalHit(text="有效证据", source=source("chunk-1"))
         service = RagService(
             [StubRetriever("keyword", [hit])],
             StubGenerator(GeneratorOutput("没有引用的回答", ())),
         )
 
-        with self.assertRaises(GenerationContractError):
-            await service.answer(RagQuery("测试无引用回答"))
+        answer = await service.answer(RagQuery("测试无引用回答"))
+
+        self.assertEqual(answer.citations, ())
+        self.assertEqual(answer.evidence_support.level, EvidenceSupportLevel.NONE)
+        self.assertNotIn("没有引用的回答", answer.answer)
 
     async def test_falls_back_when_optional_reranker_fails(self) -> None:
         hit = RetrievalHit(text="融合结果证据", source=source("chunk-1"))

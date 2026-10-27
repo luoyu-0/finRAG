@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 
@@ -8,6 +9,11 @@ from app.api.v1.users import router as users_router
 from app.core.database import initialize_database, session_factory
 from app.core.exceptions import install_error_handlers
 from app.services.auth.service import bootstrap_admin
+from app.repositories.milvus_chunks import MilvusChunkRepository
+from app.repositories.keyword_chunks import KeywordChunkRetriever
+from app.services.rag.deepseek import DeepSeekAnswerGenerator
+from app.services.rag.embedding import BgeEmbeddingProvider
+from app.services.rag.orchestrator import RagService
 
 
 @asynccontextmanager
@@ -15,6 +21,18 @@ async def lifespan(_app: FastAPI):
     initialize_database()
     with session_factory()() as db:
         bootstrap_admin(db)
+    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    if api_key:
+        embedding = BgeEmbeddingProvider()
+        retriever = MilvusChunkRepository(
+            f"http://{os.getenv('MILVUS_HOST', 'milvus')}:{os.getenv('MILVUS_PORT', '19530')}",
+            embedding,
+        )
+        retriever.ensure_collection()
+        _app.state.rag_service = RagService(
+            (retriever, KeywordChunkRetriever()),
+            DeepSeekAnswerGenerator(api_key, model=os.getenv("DEEPSEEK_MODEL", "deepseek-flash")),
+        )
     yield
 
 app = FastAPI(

@@ -2,7 +2,7 @@
 
 本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
 
-当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、RAG 在线核心编排，以及独立的文档解析和 OCR 脚本。解析结果尚未接入 Embedding、检索器和 LLM Provider；检索服务未配置时问答接口明确返回 `503`，不会显示虚构答案。
+当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。
 
 ## 目标范围
 
@@ -24,14 +24,14 @@
 | 前端 | React、TypeScript |
 | 结构化存储 | MySQL |
 | 向量存储 | Milvus |
-| LLM | DeepSeek API 为当前候选；是否满足课程“开源可商用”要求仍待确认 |
+| LLM | DeepSeek API 已接入；是否满足课程“开源可商用”要求仍待确认 |
 | Embedding | [BAAI/bge-small-zh-v1.5](https://huggingface.co/BAAI/bge-small-zh-v1.5)，512 维；通过 Provider 保留替换能力 |
 | OCR | PaddleOCR 为主，Tesseract 为备用和对照基线 |
 | 用户与鉴权 | 本地账户、短时 JWT Access Token、可撤销 Refresh Session、基础 RBAC |
 | 测试 | pytest、前端单元测试、端到端测试、接口测试 |
 | 部署 | Docker、Docker Compose |
 
-LLM、Embedding、OCR 和向量检索将通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。文本型 PDF 优先按页直接提取文本，仅对扫描页、无有效文本层或提取质量不合格的页面执行 OCR；复杂表格、印章和异常版面可再进入版面分析或视觉模型复核。Embedding 初选轻量中文模型 `BAAI/bge-small-zh-v1.5`，兼顾中文检索效果与本地部署成本；获得正式数据后再决定是否需要替换。
+LLM、Embedding 和向量检索通过适配接口接入，避免业务代码与单一供应商或模型深度绑定。离线索引导入对 TXT 和 PDF 按页原生提取，使用 `--ocr` 时仅对无文字层的 PDF 页面调用 PaddleOCR，并将识别结果写入索引。Embedding 使用 `BAAI/bge-small-zh-v1.5` 的 ONNX 版本，获得正式数据后再决定是否需要替换。
 
 用户系统默认创建 `admin / finrag2026` 管理员，登录页允许用用户名和密码注册普通账户；注册后直接登录。密码只保存安全哈希，Refresh Token 仅保存摘要。用户鉴权、目录边界、PDF 与 OCR 路由统一记录在 [系统架构](docs/architecture/系统架构.md)。
 
@@ -100,13 +100,15 @@ Copy-Item .env.example .env
 
 打开 `.env`，替换两个 MySQL 示例密码。本地开发可将 `JWT_SECRET_KEY` 留空，使用固定开发密钥；正式环境仍须配置独立密钥。启动时确保 `admin / finrag2026` 可用；已有管理员若密码不同，会同步为配置的默认密码并撤销旧刷新会话。其他用户可在登录页自行注册。
 
-然后执行：
+在 Windows PowerShell 中执行以下脚本。脚本会运行 `docker compose up -d --build --wait`，全部服务健康后读取实际映射端口并打印前端入口；启动失败时不会打印入口。
 
-```bash
+```powershell
 docker compose config
-docker compose up -d --build
+./scripts/start.ps1
 docker compose ps
 ```
+
+直接运行 `docker compose up -d --build --wait` 仍可启动服务，但 Compose 本身不会在成功后额外打印本项目的入口地址。Linux 环境可在命令成功后执行 `docker compose port frontend 80` 查看实际映射端口。
 
 首次启动需要下载并构建多个镜像，耗时取决于网络。所有服务健康后可以访问：
 
@@ -116,13 +118,41 @@ docker compose ps
 - Milvus WebUI：<http://127.0.0.1:9091/webui/>
 - MinIO 控制台：<http://127.0.0.1:9001>
 
-首次构建会在容器内执行后端依赖安装、前端 TypeScript 类型检查和 Vite 生产构建，因此无需在宿主机预装 Node.js 或 Python。可通过以下命令确认所有服务是否已经进入 `healthy` 状态：
-
-使用初始化的管理员账户登录后，当前问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`。这是检索与生成 Provider 尚未接入时的预期结果。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。
+首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段现返回 Markdown 字符串，引用和证据支持度仍在独立字段中；前端 Markdown 渲染由后续适配完成。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
 
 ```bash
 docker compose ps
 ```
+
+### 导入 TXT 与 PDF
+
+将已获授权的 `.txt`、`.pdf` 放入 `data/raw/`，可建子目录。默认知识库 ID 为 `default`；缺少状态元数据时按团队本次决定默认标为 `active` 并参与检索。正式数据到位后应核对时效性，过期文件请在 `data/raw/metadata.json` 中显式标为 `inactive` 后重新导入。元数据以相对路径为键：
+
+```json
+{
+  "制度/示例.pdf": {
+    "title": "示例制度",
+    "policy_status": "active",
+    "effective_from": "2026-01-01T00:00:00+08:00",
+    "effective_to": null,
+    "source_url": "https://example.org/policy.pdf"
+  }
+}
+```
+
+导入命令会按文件内容生成稳定版本 ID，并结合文档 ID 生成分块 ID，避免内容相同的不同文件发生主键冲突；再次运行会更新同一文件的索引。由旧版分块 ID 规则升级时需重新运行导入命令以重建索引，已有问答历史中的旧分块 ID 可能无法再定位到新索引。单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
+
+```powershell
+docker compose exec backend python -m app.workers.import_documents
+```
+
+扫描版或部分页面没有文字层的 PDF，使用一次性容器执行选择性 OCR 导入。首次运行会下载 PaddleOCR 模型并保存在 Docker 卷中；处理时间取决于扫描页数。识别页会记录“需人工复核”告警，重要制度和条文应核对原 PDF。若只需导入部分文件，在 `data/processed/ocr-targets.txt` 中逐行写入相对于 `data/raw/` 的路径，再加 `--paths-file /app/data/processed/ocr-targets.txt`。
+
+```powershell
+docker compose run --rm --no-deps backend python -m app.workers.import_documents --ocr
+```
+
+导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；上传管理界面、导入任务进度和 PDF 复杂版面处理仍未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
 
 停止容器但保留数据：
 
@@ -130,7 +160,7 @@ docker compose ps
 docker compose down
 ```
 
-`docker compose down -v` 会同时删除 MySQL、Milvus、MinIO 和 etcd 的本地数据卷，仅在明确需要重置环境时使用。
+`docker compose down -v` 会同时删除 MySQL、Milvus、MinIO、etcd 数据卷和 OCR 模型缓存卷，仅在明确需要重置环境时使用。
 
 ### 离线文档解析与 OCR
 
@@ -140,7 +170,7 @@ docker compose down
 docker compose run --rm --no-deps --build backend python process_docs.py
 ```
 
-该命令复用后端镜像，但 OCR 在独立的一次性容器中执行，不占用在线问答进程。首次识别扫描件或图片时 PaddleOCR 可能下载模型文件；纯文本文件不会初始化 OCR 模型。每次运行都会覆盖 `chunks.jsonl`；当前脚本只完成解析与切分，尚未将结果写入 Milvus。图片单文件调试可运行 `docker compose run --rm --no-deps backend python test_ocr.py "/app/data/raw/images/文件名.png"`。
+该命令复用后端镜像，但 OCR 在独立的一次性容器中执行，不占用在线问答进程。首次识别扫描件或图片时 PaddleOCR 可能下载模型文件；纯文本文件不会初始化 OCR 模型。每次运行都会覆盖 `chunks.jsonl`；这个独立调试脚本只完成解析与切分，不写入 Milvus。需要参与问答的 PDF 请使用上文的 `app.workers.import_documents --ocr` 命令。图片单文件调试可运行 `docker compose run --rm --no-deps backend python test_ocr.py "/app/data/raw/images/文件名.png"`。
 
 文件解析回归测试使用 `cd backend` 后执行 `python -m pytest tests/integration/test_document_import.py`。测试用临时 PDF 和 OCR Stub，不下载模型，也不调用外部服务。
 
@@ -225,6 +255,9 @@ docker compose up -d --build mysql backend frontend
 - [x] 在 Windows 11 + Docker Desktop 上完成全量容器构建和健康检查验证
 - [x] 完成用户鉴权架构与选择性 OCR 路由规划
 - [x] 实现 RAG 在线核心领域模型、混合检索融合、上下文、引用与证据支持度
-- [ ] 接入关键词检索、Milvus、Reranker 和最终确认的 LLM Provider
-- [ ] 实现最小可运行的端到端流程
+- [x] 接入 Milvus 向量检索、BGE Embedding 和 DeepSeek 生成 Provider
+- [x] 实现 TXT/文字型 PDF 到向量索引的离线导入
+- [x] 接入 MySQL 中文关键词检索与向量融合
+- [ ] 接入 Reranker，并实现导入管理界面
+- [ ] 用正式数据验证端到端问答质量与课程指标
 
