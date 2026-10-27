@@ -12,6 +12,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update \
     && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-zh-v1.5', cache_dir='/opt/models')"
 
 COPY backend/app ./app
 COPY process_docs.py test_ocr.py ./

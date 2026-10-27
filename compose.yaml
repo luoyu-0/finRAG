@@ -118,6 +118,7 @@ services:
       MILVUS_HOST: milvus
       MILVUS_PORT: "19530"
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
@@ -136,6 +137,8 @@ services:
       start_period: 10s
     depends_on:
       mysql:
+        condition: service_healthy
+      milvus:
         condition: service_healthy
     networks:
       - finrag

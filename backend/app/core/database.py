@@ -22,6 +22,7 @@ def initialize_database() -> None:
     _engine = create_engine(settings.database_url, pool_pre_ping=True)
     _session_factory = sessionmaker(_engine, expire_on_commit=False)
     from app.repositories import auth_models  # noqa: F401
+    from app.repositories import document_models  # noqa: F401
 
     Base.metadata.create_all(_engine)
 
