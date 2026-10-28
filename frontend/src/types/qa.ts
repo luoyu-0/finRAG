@@ -16,6 +16,11 @@ export type EvidenceLevel = "none" | "weak" | "moderate" | "strong";
 export interface Citation {
   /** 上下文中的证据标签，如 `S1`；与生成器返回的引用标签对应。 */
   label: string;
+  /**
+   * 该分块所属知识库。点击角标时用于跳转到知识库页面定位文档（契约 §6）。
+   * 为兼容尚未返回该字段的实现，此处声明为可选。
+   */
+  knowledge_base_id?: string;
   document_id: string;
   version_id: string;
   chunk_id: string;

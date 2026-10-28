@@ -17,6 +17,7 @@ import type {
   KnowledgeBase,
   KnowledgeBaseStats,
 } from "../types/knowledge";
+import { CORPUS_DOCUMENTS, CORPUS_KNOWLEDGE_BASE } from "./demo-corpus";
 
 const LATENCY_MS = 320;
 
@@ -43,6 +44,8 @@ export function paginate<T>(items: T[], query: PageQuery): Page<T> {
 }
 
 let knowledgeBases: KnowledgeBase[] = [
+  // 真实语料知识库（由脚本从命题方提供的公开制度材料生成）
+  CORPUS_KNOWLEDGE_BASE,
   {
     id: "kb_001",
     name: "金融监管制度库",
@@ -64,6 +67,8 @@ let knowledgeBases: KnowledgeBase[] = [
 ];
 
 let documents: DocumentSummary[] = [
+  // 真实语料中的制度文档
+  ...CORPUS_DOCUMENTS,
   {
     id: "doc_001",
     knowledge_base_id: "kb_001",
@@ -241,6 +246,7 @@ let history: QaRecord[] = [
     citations: [
       {
         label: "S1",
+        knowledge_base_id: "kb_001",
         document_id: "doc_001",
         version_id: "ver_001b",
         chunk_id: "chunk_001",
@@ -253,6 +259,7 @@ let history: QaRecord[] = [
       },
       {
         label: "S2",
+        knowledge_base_id: "kb_001",
         document_id: "doc_001",
         version_id: "ver_001b",
         chunk_id: "chunk_042",
@@ -286,6 +293,7 @@ let history: QaRecord[] = [
     citations: [
       {
         label: "S1",
+        knowledge_base_id: "kb_002",
         document_id: "doc_006",
         version_id: "ver_006a",
         chunk_id: "chunk_311",
@@ -389,7 +397,8 @@ export function demoCreateKnowledgeBase(payload: {
 export function demoGetKnowledgeBaseStats(id: string): Promise<KnowledgeBaseStats> {
   const docs = documents.filter((item) => item.knowledge_base_id === id);
   const active = docs.filter((item) => item.current_version?.policy_status === "active").length;
-  const chunkCount = docs.reduce((sum, item) => sum + item.page_count * 12, 0);
+  // 每页按约 6 条条文折算，使分块数与真实语料的条文数接近
+  const chunkCount = docs.reduce((sum, item) => sum + item.page_count * 6, 0);
   return simulate({
     knowledge_base_id: id,
     document_count: docs.length,

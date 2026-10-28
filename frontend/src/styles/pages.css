@@ -472,6 +472,22 @@
   font-size: var(--font-size-xs);
 }
 
+/* 悬停时指针从角标移入卡片要经过 6px 间隙，用伪元素桥接，避免卡片提前收起。 */
+.cite-pop::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+
+/* 从引用角标跳转到知识库后，高亮被定位的文档行。 */
+.table tbody tr.table__row--focus {
+  background: var(--color-accent-soft);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
 .qa__cite-hint {
   color: var(--color-text-faint);
   font-size: var(--font-size-xs);
