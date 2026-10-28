@@ -1,12 +1,5 @@
 /** 文档与导入任务接口封装，对应 docs/api/系统接口.md §8。 */
 import type { ApiClient } from "./client";
-import {
-  demoDeleteDocument,
-  demoListDocuments,
-  demoListTasks,
-  demoRetryTask,
-  demoUploadDocument,
-} from "./demo";
 import { MOCK_ENABLED } from "./mode";
 import type { Page, PageQuery } from "../types/api";
 import type {
@@ -39,6 +32,7 @@ export async function listDocuments(
   query: ListDocumentsQuery = {},
 ): Promise<Page<DocumentSummary>> {
   if (MOCK_ENABLED) {
+    const { demoListDocuments } = await import("./demo");
     return demoListDocuments(query);
   }
   return client.get<Page<DocumentSummary>>("/documents", {
@@ -58,6 +52,7 @@ export async function getDocument(client: ApiClient, documentId: string): Promis
 
 export async function deleteDocument(client: ApiClient, documentId: string): Promise<void> {
   if (MOCK_ENABLED) {
+    const { demoDeleteDocument } = await import("./demo");
     return demoDeleteDocument(documentId);
   }
   await client.delete<void>(`/documents/${documentId}`);
@@ -74,6 +69,7 @@ export async function uploadDocument(
   input: UploadDocumentInput,
 ): Promise<UploadDocumentResponse> {
   if (MOCK_ENABLED) {
+    const { demoUploadDocument } = await import("./demo");
     const created = await demoUploadDocument({
       fileName: input.file.name,
       fileSize: input.file.size,
@@ -97,6 +93,7 @@ export async function listTasks(
   query: ListTasksQuery = {},
 ): Promise<Page<IngestionTask>> {
   if (MOCK_ENABLED) {
+    const { demoListTasks } = await import("./demo");
     return demoListTasks(query);
   }
   return client.get<Page<IngestionTask>>("/ingestion-tasks", {
@@ -111,6 +108,7 @@ export async function listTasks(
 
 export async function retryTask(client: ApiClient, taskId: string): Promise<IngestionTask> {
   if (MOCK_ENABLED) {
+    const { demoRetryTask } = await import("./demo");
     return demoRetryTask(taskId);
   }
   return client.post<IngestionTask>(`/ingestion-tasks/${taskId}/retry`);
