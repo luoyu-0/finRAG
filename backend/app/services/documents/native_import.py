@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import tempfile
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,9 +13,10 @@ from pypdf import PdfReader
 from app.services.ocr.ports import OCRProvider
 
 
-ARTICLE_RE = re.compile(r"第[零一二三四五六七八九十百千0-9]+条")
-CHUNK_SIZE = 350
+STRUCTURE_RE = re.compile(r"第[零〇一二三四五六七八九十百千万0-9]+[章节条]")
+CHUNK_SIZE = 500
 OVERLAP = 50
+MIN_BREAK = CHUNK_SIZE // 2
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,59 @@ class ParsedDocument:
     chunks: tuple[ParsedChunk, ...]
     page_count: int
     warnings: tuple[str, ...]
+
+
+def _structural_sections(text: str) -> list[tuple[str, str | None]]:
+    """在章、节、条处断开，并保留条号供引用定位。"""
+    markers = []
+    for match in STRUCTURE_RE.finditer(text):
+        previous = match.start() - 1
+        while previous >= 0 and text[previous] in " \t":
+            previous -= 1
+        if previous < 0 or text[previous] in "\n。；;":
+            markers.append(match)
+    if not markers:
+        return [(text, None)]
+
+    sections = []
+    if text[:markers[0].start()].strip():
+        sections.append((text[:markers[0].start()], None))
+    article = None
+    for index, match in enumerate(markers):
+        if match.group().endswith("条"):
+            article = match.group()
+        else:
+            article = None
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        sections.append((text[match.start():end], article))
+    return sections
+
+
+def _chunk_sections(section: str) -> list[str]:
+    """优先在段落、表格行和标点处截断，超长语句最后按字符硬切。"""
+    boundaries = (
+        [match.end() for match in re.finditer(r"\n+", section)],
+        [match.end() for match in re.finditer(r"[。！？!?；;]+", section)],
+        [match.end() for match in re.finditer(r"[，、,:：]+", section)],
+    )
+    chunks = []
+    start = 0
+    while start < len(section):
+        limit = min(start + CHUNK_SIZE, len(section))
+        end = limit
+        if limit < len(section):
+            for tier in boundaries:
+                index = bisect_right(tier, limit) - 1
+                if index >= 0 and index >= bisect_left(tier, start + MIN_BREAK):
+                    end = tier[index]
+                    break
+        text = section[start:end].strip()
+        if text:
+            chunks.append(text)
+        if end == len(section):
+            break
+        start = end - OVERLAP
+    return chunks
 
 
 def parse_document(path: Path, *, ocr: OCRProvider | None = None) -> ParsedDocument:
@@ -83,29 +138,11 @@ def parse_document(path: Path, *, ocr: OCRProvider | None = None) -> ParsedDocum
     for page_number, content in pages:
         normalized = re.sub(r"[ \t]+", " ", content.replace("\r\n", "\n"))
         normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
-        matches = list(ARTICLE_RE.finditer(normalized))
-        sections = []
-        if matches and normalized[:matches[0].start()].strip():
-            sections.append((normalized[:matches[0].start()], None))
-        for index, match in enumerate(matches):
-            end = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
-            sections.append((normalized[match.start():end], match.group()))
-        if not matches:
-            sections.append((normalized, None))
-        for section, article in sections:
-            position = 0
-            while position < len(section):
-                end = min(position + CHUNK_SIZE, len(section))
-                if end < len(section):
-                    boundary = section.rfind("\n", position + CHUNK_SIZE // 2, end)
-                    if boundary > position:
-                        end = boundary + 1
-                text = section[position:end].strip()
-                if text:
-                    chunks.append(ParsedChunk(text, page_number, article))
-                if end == len(section):
-                    break
-                position = max(position + 1, end - OVERLAP)
+        for section, article in _structural_sections(normalized):
+            chunks.extend(
+                ParsedChunk(text, page_number, article)
+                for text in _chunk_sections(section)
+            )
     if not chunks:
         if ocr is not None:
             failure = next((warning for warning in warnings if "OCR 失败" in warning), None)

@@ -7,7 +7,7 @@ from pathlib import Path
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from app.services.documents.native_import import parse_document
+from app.services.documents.native_import import _chunk_sections, parse_document
 
 
 class NativeImportTests(unittest.TestCase):
@@ -26,6 +26,42 @@ class NativeImportTests(unittest.TestCase):
             path.write_text("第一条 保存记录。第二条 定期报告。", encoding="utf-8")
             parsed = parse_document(path)
         self.assertEqual([chunk.article_number for chunk in parsed.chunks], ["第一条", "第二条"])
+
+    def test_chapter_section_and_article_keep_distinct_locations(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "制度.txt"
+            path.write_text(
+                "制度标题\n第一章 总则\n第一节 适用范围\n第一条 机构应保存记录。\n第二条 机构应定期报告。",
+                encoding="utf-8",
+            )
+            parsed = parse_document(path)
+        self.assertEqual(
+            [chunk.article_number for chunk in parsed.chunks],
+            [None, None, None, "第一条", "第二条"],
+        )
+
+    def test_long_paragraph_uses_punctuation_then_fifty_character_overlap(self) -> None:
+        sentence = "机构应当核对业务记录。"
+        chunks = _chunk_sections(sentence * 60)
+        self.assertTrue(all(len(chunk) <= 500 for chunk in chunks))
+        self.assertTrue(all(left[-50:] == right[:50] for left, right in zip(chunks, chunks[1:])))
+        self.assertTrue(all(chunk.endswith("。") for chunk in chunks[:-1]))
+
+    def test_unbroken_text_falls_back_to_hard_cut(self) -> None:
+        chunks = _chunk_sections("甲" * 1100)
+        self.assertEqual([len(chunk) for chunk in chunks], [500, 500, 200])
+        self.assertTrue(all(left[-50:] == right[:50] for left, right in zip(chunks, chunks[1:])))
+
+    def test_comma_is_used_when_no_paragraph_or_sentence_boundary_exists(self) -> None:
+        chunks = _chunk_sections("甲" * 320 + "，" + "乙" * 400)
+        self.assertEqual(len(chunks[0]), 321)
+        self.assertTrue(all(len(chunk) <= 500 for chunk in chunks))
+
+    def test_table_rows_are_preferred_to_hard_cut(self) -> None:
+        row = "项目|数值|说明\n"
+        chunks = _chunk_sections(row * 70)
+        self.assertTrue(all(len(chunk) <= 500 for chunk in chunks))
+        self.assertTrue(chunks[0].endswith("说明"))
 
     def test_rejects_empty_text(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
