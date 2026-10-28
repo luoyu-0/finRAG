@@ -4,7 +4,7 @@
  * 对应 docs/api/系统接口.md §7.2（详情）、§7.5（统计）、§8.2（文档列表）。
  */
 import { useCallback } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { listDocuments } from "../../api/documents";
 import { getKnowledgeBase, getKnowledgeBaseStats } from "../../api/knowledge";
@@ -55,6 +55,9 @@ function formatSize(bytes: number): string {
 
 export function KnowledgeDetailPage() {
   const { knowledgeBaseId = "" } = useParams();
+  // 从问答页的引用角标跳转过来时，URL 带 `?doc=<document_id>`，据此高亮该文档。
+  const [searchParams] = useSearchParams();
+  const focusedDocId = searchParams.get("doc");
 
   const fetcher = useCallback(async (): Promise<DetailBundle> => {
     const [knowledgeBase, stats, documents] = await Promise.all([
@@ -97,6 +100,8 @@ export function KnowledgeDetailPage() {
   }
 
   const { knowledgeBase, stats, documents } = data;
+  const focusedDocument =
+    focusedDocId === null ? null : (documents.items.find((doc) => doc.id === focusedDocId) ?? null);
 
   return (
     <div className="stack stack--section">
@@ -156,7 +161,11 @@ export function KnowledgeDetailPage() {
       <section className="card">
         <div className="card__header">
           <h3 className="card__title">文档</h3>
-          <span className="faint">共 {documents.total} 份</span>
+          <span className="faint">
+            {focusedDocument === null
+              ? `共 ${String(documents.total)} 份`
+              : `已定位到来源文档：${focusedDocument.title}`}
+          </span>
         </div>
 
         <div className="card__body card__body--flush">
@@ -177,7 +186,10 @@ export function KnowledgeDetailPage() {
                   {documents.items.map((doc) => {
                     const status = doc.current_version?.policy_status ?? "unknown";
                     return (
-                      <tr key={doc.id}>
+                      <tr
+                        key={doc.id}
+                        className={doc.id === focusedDocId ? "table__row--focus" : undefined}
+                      >
                         <td>
                           <div className="table__title">{doc.title}</div>
                           <div className="table__sub">{doc.file_name}</div>

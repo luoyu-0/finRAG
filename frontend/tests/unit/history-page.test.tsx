@@ -37,9 +37,9 @@ describe("问答历史页", () => {
     expect(screen.getByText(/trace_demo_001/)).toBeInTheDocument();
 
     // 正文内嵌标记时用行内角标，不渲染底部来源列表
-    const anchors = screen.getAllByRole("button", { name: /查看第 \d 条条文来源/ });
+    const anchors = screen.getAllByRole("button", { name: /第 \d 条条文来源/ });
     expect(anchors.length).toBeGreaterThan(0);
-    await user.click(anchors[0]);
+    await user.hover(anchors[0]);
     expect(await screen.findByText("第二十条")).toBeInTheDocument();
   });
 
