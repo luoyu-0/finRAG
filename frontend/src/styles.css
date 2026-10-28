@@ -1,6 +1,7 @@
-/* 样式入口：依次加载设计令牌、基础样式、布局组件与页面组件样式。 */
+/* 样式入口：依次加载设计令牌、基础样式、布局组件、页面组件与企业标识样式。 */
 
 @import "./styles/tokens.css";
 @import "./styles/base.css";
 @import "./styles/app.css";
 @import "./styles/pages.css";
+@import "./styles/brand.css";

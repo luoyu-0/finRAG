@@ -41,7 +41,13 @@ export function AppLayout() {
     <div className="app-shell">
       <aside className="app-sidebar">
         <div className="app-brand">
-          <span className="app-brand__name">finRAG</span>
+          <img
+            className="app-brand__logo"
+            src="/brand/sunyard-logo.webp"
+            alt="信雅达 SUNYARD"
+            width={757}
+            height={200}
+          />
           <span className="app-brand__sub">金融制度知识问答系统</span>
         </div>
 

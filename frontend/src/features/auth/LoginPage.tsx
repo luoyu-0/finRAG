@@ -58,6 +58,14 @@ export function LoginPage() {
   return (
     <div className="auth-shell">
       <aside className="auth-aside">
+        <img
+          className="auth-aside__logo"
+          src="/brand/sunyard-logo.webp"
+          alt="信雅达 SUNYARD"
+          width={757}
+          height={200}
+        />
+
         <div className="stack stack--tight">
           <p className="eyebrow eyebrow--inverse">finRAG</p>
           <p className="auth-aside__title">
