@@ -1,9 +1,15 @@
+param([switch]$Build)
+
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 
 Push-Location -LiteralPath $projectRoot
 try {
-    & docker compose up -d --build --wait
+    $composeArguments = @('compose', 'up', '-d', '--wait')
+    if ($Build) {
+        $composeArguments += '--build'
+    }
+    & docker @composeArguments
     if ($LASTEXITCODE -ne 0) {
         throw 'Docker Compose 启动失败，未输出前端入口。'
     }

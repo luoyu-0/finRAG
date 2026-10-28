@@ -104,6 +104,9 @@ services:
     build:
       context: .
       dockerfile: infra/docker/backend/Dockerfile
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian-security}
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-development}
