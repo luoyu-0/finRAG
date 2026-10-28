@@ -342,6 +342,141 @@
   text-decoration: underline;
 }
 
+/* ══ 行内条文角标与来源卡片 ═══════════════════════════════ */
+
+.cite-wrap {
+  position: relative;
+  display: inline;
+}
+
+.cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  padding: 0 4px;
+  background: var(--citation-bg);
+  border: 1px solid var(--citation-border);
+  border-radius: var(--radius-pill);
+  color: var(--citation-accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: super;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.cite:hover,
+.cite[aria-expanded="true"] {
+  background: var(--citation-accent);
+  border-color: var(--citation-accent);
+  color: #fff;
+}
+
+.cite-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: max-content;
+  max-width: 320px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--citation-bg);
+  border: 1px solid var(--citation-border);
+  border-left: 3px solid var(--citation-accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  text-align: left;
+  vertical-align: baseline;
+  white-space: normal;
+}
+
+.cite-pop__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.cite-pop__label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--citation-accent);
+}
+
+.cite-pop__title {
+  flex: 1;
+  font-family: var(--font-serif);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.cite-pop__close {
+  padding: 0 2px;
+  background: none;
+  border: none;
+  color: var(--color-text-faint);
+  font-size: var(--font-size-md);
+  line-height: 1;
+}
+
+.cite-pop__close:hover {
+  color: var(--color-text);
+}
+
+.cite-pop__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-family: var(--font-serif);
+  font-size: var(--font-size-xs);
+  color: var(--citation-quote);
+}
+
+.cite-pop__meta-item::after {
+  content: "·";
+  margin-left: var(--space-2);
+  color: var(--citation-border);
+}
+
+.cite-pop__meta-item:last-child::after {
+  content: "";
+  margin: 0;
+}
+
+.cite-pop__article {
+  font-weight: 600;
+  color: var(--citation-accent);
+}
+
+.cite-pop__quote {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--citation-border);
+  font-family: var(--font-serif);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-loose);
+  color: var(--citation-quote);
+}
+
+.cite-pop__foot {
+  font-size: var(--font-size-xs);
+}
+
+.qa__cite-hint {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
+}
+
 /* ══ 响应式 ════════════════════════════════════════════════ */
 
 @media (max-width: 900px) {
@@ -361,5 +496,9 @@
   .table th,
   .table td {
     padding: var(--space-2) var(--space-3);
+  }
+
+  .cite-pop {
+    max-width: min(280px, calc(100vw - 48px));
   }
 }

@@ -11,6 +11,7 @@ import { ApiError } from "../../api/errors";
 import { MOCK_ENABLED } from "../../api/mode";
 import { askQuestion } from "../../api/qa";
 import { apiClient } from "../../api/session";
+import { AnswerText, hasCitationMarkers } from "../../components/AnswerText";
 import { CitationList } from "../../components/CitationList";
 import { EvidenceMeter } from "../../components/EvidenceMeter";
 import { PageState } from "../../components/PageState";
@@ -29,6 +30,8 @@ type Phase = "idle" | "loading" | "success" | "error";
 
 function AnswerPanel({ result }: { result: QuestionResponse }) {
   const hasEvidence = result.evidence_support.level !== "none";
+  // 后端在正文内嵌 [S1] 时用行内角标；未内嵌则回退为底部来源列表（契约 §6）。
+  const inlineCitations = hasEvidence && hasCitationMarkers(result.answer);
 
   return (
     <div className="stack">
@@ -46,15 +49,25 @@ function AnswerPanel({ result }: { result: QuestionResponse }) {
       ) : null}
 
       {hasEvidence ? (
-        <p className="qa__answer-body">{result.answer}</p>
+        inlineCitations ? (
+          <AnswerText text={result.answer} citations={result.citations} />
+        ) : (
+          <p className="qa__answer-body">{result.answer}</p>
+        )
       ) : (
         <p className="qa__no-evidence">{result.answer}</p>
       )}
 
-      <section className="qa__section">
-        <h3 className="qa__section-title">条文来源（{result.citations.length}）</h3>
-        <CitationList citations={result.citations} />
-      </section>
+      {inlineCitations ? (
+        <p className="qa__cite-hint">
+          正文中的角标可点击查看条文来源，共 {result.citations.length} 条。
+        </p>
+      ) : (
+        <section className="qa__section">
+          <h3 className="qa__section-title">条文来源（{result.citations.length}）</h3>
+          <CitationList citations={result.citations} />
+        </section>
+      )}
 
       <p className="qa__trace">trace_id: {result.trace_id}</p>
     </div>

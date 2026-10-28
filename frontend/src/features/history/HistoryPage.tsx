@@ -11,6 +11,7 @@ import { ApiError } from "../../api/errors";
 import { addFavorite, removeFavorite } from "../../api/favorites";
 import { deleteHistory, listHistory } from "../../api/history";
 import { apiClient } from "../../api/session";
+import { AnswerText, hasCitationMarkers, stripCitationMarkers } from "../../components/AnswerText";
 import { Badge } from "../../components/Badge";
 import { CitationList } from "../../components/CitationList";
 import { EvidenceMeter } from "../../components/EvidenceMeter";
@@ -151,6 +152,14 @@ export function HistoryPage() {
                 {data.items.map((record) => {
                   const expanded = expandedId === record.id;
                   const percent = Math.round(record.evidence_support.score * 100);
+                  // 正文内嵌 [S1] 时用行内角标，否则回退为来源列表（契约 §6）。
+                  const inlineCitations =
+                    record.citations.length > 0 && hasCitationMarkers(record.answer);
+                  const plainAnswer = stripCitationMarkers(record.answer);
+                  const excerpt =
+                    plainAnswer.length > EXCERPT_LENGTH
+                      ? `${plainAnswer.slice(0, EXCERPT_LENGTH)}…`
+                      : plainAnswer;
 
                   return (
                     <li className="record" key={record.id}>
@@ -193,16 +202,22 @@ export function HistoryPage() {
                       {expanded ? (
                         <div className="stack">
                           <EvidenceMeter evidence={record.evidence_support} />
-                          <p className="record__body">{record.answer}</p>
-                          <CitationList citations={record.citations} />
+                          {inlineCitations ? (
+                            <AnswerText
+                              className="record__body"
+                              text={record.answer}
+                              citations={record.citations}
+                            />
+                          ) : (
+                            <>
+                              <p className="record__body">{record.answer}</p>
+                              <CitationList citations={record.citations} />
+                            </>
+                          )}
                           <p className="qa__trace">trace_id: {record.trace_id}</p>
                         </div>
                       ) : (
-                        <p className="record__body">
-                          {record.answer.length > EXCERPT_LENGTH
-                            ? `${record.answer.slice(0, EXCERPT_LENGTH)}…`
-                            : record.answer}
-                        </p>
+                        <p className="record__body">{excerpt}</p>
                       )}
                     </li>
                   );

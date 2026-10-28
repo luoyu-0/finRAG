@@ -26,16 +26,21 @@ describe("问答历史页", () => {
     expect(screen.getByText("共 3 条")).toBeInTheDocument();
   });
 
-  it("展开后展示证据支持度、条文引用与 trace_id", async () => {
+  it("展开后展示证据支持度、行内条文角标与 trace_id", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("商业银行应如何管理流动性风险？");
 
     await user.click(screen.getAllByRole("button", { name: "展开" })[0]);
 
-    expect(await screen.findByText("第二十条")).toBeInTheDocument();
+    expect(await screen.findByText(/证据支持度：较强/)).toBeInTheDocument();
     expect(screen.getByText(/trace_demo_001/)).toBeInTheDocument();
-    expect(screen.getByText(/证据支持度：较强/)).toBeInTheDocument();
+
+    // 正文内嵌标记时用行内角标，不渲染底部来源列表
+    const anchors = screen.getAllByRole("button", { name: /查看第 \d 条条文来源/ });
+    expect(anchors.length).toBeGreaterThan(0);
+    await user.click(anchors[0]);
+    expect(await screen.findByText("第二十条")).toBeInTheDocument();
   });
 
   it("未收藏的记录可以收藏", async () => {

@@ -237,7 +237,7 @@ let history: QaRecord[] = [
     id: "qa_001",
     question: "商业银行应如何管理流动性风险？",
     answer:
-      "根据检索到的示例条文，流动性风险管理通常包含治理与策略、限额与监测、压力测试与应急预案三个层面。以上内容由演示数据生成。",
+      "根据检索到的示例条文，流动性风险管理通常包含治理与策略、限额与监测、压力测试与应急预案三个层面[S1][S2]。以上内容由演示数据生成。",
     citations: [
       {
         label: "S1",
@@ -248,6 +248,8 @@ let history: QaRecord[] = [
         page_number: 12,
         article_number: "第二十条",
         source_url: null,
+        excerpt:
+          "商业银行应当建立与本行规模、业务复杂程度相适应的流动性风险管理体系，并明确董事会与高级管理层在流动性风险管理中的职责。",
       },
       {
         label: "S2",
@@ -258,6 +260,8 @@ let history: QaRecord[] = [
         page_number: 18,
         article_number: "第三十四条",
         source_url: null,
+        excerpt:
+          "商业银行应当持续监测现金流缺口、流动性覆盖率等流动性风险指标，并对突破预警限额的情况及时报告。",
       },
     ],
     evidence_support: {
@@ -277,7 +281,8 @@ let history: QaRecord[] = [
   {
     id: "qa_002",
     question: "支付业务许可证期满后最迟何时提出续展申请？",
-    answer: "根据示例条文，应当在许可证期满前 6 个月内向所在地中国人民银行分支机构提出续展申请。",
+    answer:
+      "根据示例条文，应当在许可证期满前 6 个月内向所在地中国人民银行分支机构提出续展申请[S1]。",
     citations: [
       {
         label: "S1",
@@ -288,6 +293,8 @@ let history: QaRecord[] = [
         page_number: 4,
         article_number: "第十条",
         source_url: null,
+        excerpt:
+          "支付机构拟在支付业务许可证期满后继续从事支付业务的，应当在期满前 6 个月内向所在地中国人民银行分支机构提出续展申请。",
       },
     ],
     evidence_support: {
