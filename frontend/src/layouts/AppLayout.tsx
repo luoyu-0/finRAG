@@ -1,7 +1,8 @@
 /**
  * 应用外壳：左侧导航 + 顶部信息栏 + 内容区。
  *
- * 导航中未实现的模块显式标注「待实现」，避免使用者以为功能缺失是缺陷。
+ * 导航项按角色过滤：文档导入仅管理员可见。**这只是交互优化**，
+ * 真实权限由后端在接口层校验（见 docs/api/系统接口.md §1.2）。
  */
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
@@ -12,14 +13,16 @@ import { useAuth } from "../stores/auth";
 interface NavItem {
   to: string;
   label: string;
-  enabled: boolean;
+  /** 仅管理员可见。 */
+  adminOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/qa", label: "制度问答", enabled: true },
-  { to: "/knowledge", label: "知识库", enabled: false },
-  { to: "/history", label: "问答历史", enabled: false },
-  { to: "/favorites", label: "我的收藏", enabled: false },
+  { to: "/qa", label: "制度问答" },
+  { to: "/knowledge", label: "知识库" },
+  { to: "/import", label: "文档导入", adminOnly: true },
+  { to: "/history", label: "问答历史" },
+  { to: "/favorites", label: "我的收藏" },
 ];
 
 const ROLE_TEXT = { admin: "管理员", user: "普通用户" } as const;
@@ -29,35 +32,37 @@ export function AppLayout() {
   const location = useLocation();
   const [logoutError, setLogoutError] = useState<string | null>(null);
 
+  const visibleItems = NAV_ITEMS.filter(
+    (item) => item.adminOnly !== true || user?.role === "admin",
+  );
   const current = NAV_ITEMS.find((item) => location.pathname.startsWith(item.to));
 
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
         <div className="app-brand">
-          <span className="app-brand__name">finRAG</span>
+          <img
+            className="app-brand__logo"
+            src="/brand/sunyard-logo.webp"
+            alt="信雅达 SUNYARD"
+            width={757}
+            height={200}
+          />
           <span className="app-brand__sub">金融制度知识问答系统</span>
         </div>
 
         <nav className="app-nav" aria-label="主导航">
-          {NAV_ITEMS.map((item) =>
-            item.enabled ? (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  isActive ? "app-nav__item app-nav__item--active" : "app-nav__item"
-                }
-              >
-                {item.label}
-              </NavLink>
-            ) : (
-              <span key={item.to} className="app-nav__item app-nav__item--disabled">
-                {item.label}
-                <span className="app-nav__hint">待实现</span>
-              </span>
-            ),
-          )}
+          {visibleItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                isActive ? "app-nav__item app-nav__item--active" : "app-nav__item"
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
         </nav>
 
         <div className="app-sidebar__footer">

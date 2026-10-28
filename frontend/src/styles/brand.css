@@ -1,0 +1,29 @@
+/**
+ * 企业标识样式。
+ *
+ * 标识资源位于 `public/brand/`，由构建原样拷贝：
+ * - `sunyard-logo.webp`：横版白色透明 logo，**仅用于深色底**（侧栏与登录页左面板）；
+ * - `favicon.png`：由 logo 左侧几何标合成深蓝圆角方块，供浏览器标签页使用。
+ *
+ * 内容区与表单卡为浅色底，放白色 logo 会看不见，因此未在这些位置使用。
+ */
+
+.app-brand {
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid rgb(255 255 255 / 12%);
+}
+
+.app-brand__logo {
+  display: block;
+  width: 100%;
+  max-width: 168px;
+  height: auto;
+}
+
+.auth-aside__logo {
+  display: block;
+  width: 100%;
+  max-width: 208px;
+  height: auto;
+}

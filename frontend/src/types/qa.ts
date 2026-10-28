@@ -23,6 +23,8 @@ export interface Citation {
   page_number: number | null;
   article_number: string | null;
   source_url: string | null;
+  /** 该分块中与引用相关的原文摘录；后端未提供时前端不展示引文段（契约 §6，可选）。 */
+  excerpt?: string | null;
 }
 
 /** 证据支持度。 */
