@@ -142,7 +142,14 @@ docker compose ps
 
 导入命令会按文件内容生成稳定版本 ID，并结合文档 ID 生成分块 ID，避免内容相同的不同文件发生主键冲突；再次运行会更新同一文件的索引。由旧版分块 ID 规则升级时需重新运行导入命令以重建索引，已有问答历史中的旧分块 ID 可能无法再定位到新索引。单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
 
-当前代码中的线上导入分块策略已调整为按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；现有索引尚未按新策略重建，当前问答效果仍由旧分块决定。基于本地原始制度文件核对的 50 组问答样本见 [问答基准集](data/samples/qa_50_from_raw.json)，后续可用于评估重新导入后的问答效果。
+当前代码中的线上导入分块策略按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；修改分块规则或原文后须重新导入相应文件，才会影响在线问答。基于本地原始制度文件核对的 50 组问答样本见 [问答基准集](data/samples/qa_50_from_raw.json)。重建这 10 份来源文件的索引后，可从后端运行评测并在 `data/processed/qa_evaluation.json`、`data/processed/qa_evaluation.md` 查看逐题回答、引用命中和汇总结果：
+
+```powershell
+$samplePath = (Resolve-Path data/samples).Path
+docker compose run --rm --no-deps --volume "${samplePath}:/app/data/samples:ro" backend python -m app.workers.evaluate_qa
+```
+
+评测会先校验原文哈希、证据摘录和索引文件版本；不一致时需先重新导入。可加 `--limit 1` 仅跑首题检查。评测会真实调用 DeepSeek API，文本相似度仅供辅助比较，答案事实和引用仍需人工审核。
 
 ```powershell
 docker compose exec backend python -m app.workers.import_documents
