@@ -245,5 +245,57 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer.evidence_support.level, EvidenceSupportLevel.NONE)
 
 
+class CitationOutputTests(unittest.IsolatedAsyncioTestCase):
+    """前端角标依赖的引用字段：能否定位、能否展示原文摘录。"""
+
+    async def test_inline_markers_produce_citations(self) -> None:
+        hit = RetrievalHit(text="有效制度证据", source=source("chunk-1"))
+        # 生成器只在正文里写了标记，citation_labels 为空。
+        generator = StubGenerator(
+            GeneratorOutput("### 结论\n\n应当建立流动性风险管理体系[S1]。", ())
+        )
+        service = RagService([StubRetriever("keyword", [hit])], generator)
+
+        answer = await service.answer(RagQuery("如何管理流动性风险？"))
+
+        self.assertEqual([citation.label for citation in answer.citations], ["S1"])
+        self.assertEqual(answer.citations[0].source.knowledge_base_id, "kb-1")
+
+    async def test_rejects_unknown_inline_marker(self) -> None:
+        hit = RetrievalHit(text="有效制度证据", source=source("chunk-1"))
+        generator = StubGenerator(GeneratorOutput("回答[S9]。", ()))
+        service = RagService([StubRetriever("keyword", [hit])], generator)
+
+        with self.assertRaises(GenerationContractError):
+            await service.answer(RagQuery("如何管理流动性风险？"))
+
+    async def test_citation_excerpt_comes_from_chunk_text(self) -> None:
+        hit = RetrievalHit(
+            text="第一条  商业银行应当\n建立流动性风险管理体系。",
+            source=source("chunk-1"),
+        )
+        generator = StubGenerator(GeneratorOutput("应当建立体系[S1]。", ("S1",)))
+        service = RagService([StubRetriever("keyword", [hit])], generator)
+
+        answer = await service.answer(RagQuery("如何管理流动性风险？"))
+
+        self.assertEqual(
+            answer.citations[0].excerpt,
+            "第一条 商业银行应当 建立流动性风险管理体系。",
+        )
+
+    async def test_citation_excerpt_is_truncated(self) -> None:
+        hit = RetrievalHit(text="条文" * 300, source=source("chunk-1"))
+        generator = StubGenerator(GeneratorOutput("回答[S1]。", ("S1",)))
+        service = RagService([StubRetriever("keyword", [hit])], generator)
+
+        answer = await service.answer(RagQuery("如何管理流动性风险？"))
+
+        excerpt = answer.citations[0].excerpt
+        self.assertIsNotNone(excerpt)
+        self.assertEqual(len(excerpt or ""), 241)
+        self.assertTrue((excerpt or "").endswith("…"))
+
+
 if __name__ == "__main__":
     unittest.main()

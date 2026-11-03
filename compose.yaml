@@ -107,6 +107,7 @@ services:
       args:
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian}
         DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-development}

@@ -14,15 +14,20 @@ import { apiClient } from "../../api/session";
 import { AnswerText, hasCitationMarkers } from "../../components/AnswerText";
 import { CitationList } from "../../components/CitationList";
 import { EvidenceMeter } from "../../components/EvidenceMeter";
+import { MarkdownText } from "../../components/MarkdownText";
 import { PageState } from "../../components/PageState";
 import type { QuestionResponse } from "../../types/qa";
 
 const MAX_LENGTH = 500;
 const REQUEST_TIMEOUT_MS = 15_000;
 
+// 示例问题都取自当前知识库中可直接作答的条文，避免点了示例却得到「依据不足」。
+// 候选题在真实接口上每题问两遍，只保留两次都能答的（支付许可证续展、存款保险投保范围
+// 曾出现拒答，未采用）。
 const EXAMPLES = [
-  "商业银行应如何管理流动性风险？",
-  "压力测试结果不合格时应采取哪些措施？",
+  "反洗钱措施应当如何兼顾风险与正常金融服务？",
+  "全国反洗钱监督管理工作由哪个部门负责？",
+  "残缺污损人民币的兑换标准是什么？",
   ...(MOCK_ENABLED ? ["演示：无证据时如何回应？"] : []),
 ];
 
@@ -52,15 +57,15 @@ function AnswerPanel({ result }: { result: QuestionResponse }) {
         inlineCitations ? (
           <AnswerText text={result.answer} citations={result.citations} />
         ) : (
-          <p className="qa__answer-body">{result.answer}</p>
+          <MarkdownText className="qa__answer-body" text={result.answer} />
         )
       ) : (
-        <p className="qa__no-evidence">{result.answer}</p>
+        <MarkdownText className="qa__no-evidence" text={result.answer} />
       )}
 
       {inlineCitations ? (
         <p className="qa__cite-hint">
-          正文中的角标可点击查看条文来源，共 {result.citations.length} 条。
+          正文中的角标可查看条文来源，共 {result.citations.length} 条。
         </p>
       ) : (
         <section className="qa__section">
@@ -140,7 +145,7 @@ export function QaPage() {
                 className="qa__textarea"
                 value={question}
                 maxLength={MAX_LENGTH + 200}
-                placeholder="例如：商业银行应如何管理流动性风险？"
+                placeholder="例如：反洗钱措施应当如何兼顾风险与正常金融服务？"
                 onChange={(event) => setQuestion(event.target.value)}
               />
 

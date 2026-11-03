@@ -11,7 +11,13 @@ from sqlalchemy import select
 from app.api.v1.auth import clear_login_failures
 from app.core.database import session_factory
 from app.core.security import hash_password
-from app.domain.rag import EvidenceSupport, EvidenceSupportLevel, RagAnswer
+from app.domain.rag import (
+    Citation,
+    EvidenceSupport,
+    EvidenceSupportLevel,
+    RagAnswer,
+    SourceReference,
+)
 from app.main import app
 from app.repositories.auth_models import QaRecord, UserRecord
 
@@ -167,5 +173,71 @@ def test_default_admin_exists_without_extra_secrets(monkeypatch, tmp_path):
                 body={"username": "admin", "password": "finrag2026"},
             )
             assert status == 200 and body["user"]["role"] == "admin"
+
+    asyncio.run(scenario())
+
+
+def test_qa_response_exposes_citation_source_metadata(monkeypatch, tmp_path):
+    """接口层必须把 knowledge_base_id 与 excerpt 透出，前端角标才能定位并展示原文。"""
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'citations.db').as_posix()}")
+    monkeypatch.setenv("JWT_SECRET_KEY", "integration_test_secret_longer_than_32_characters")
+    monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD", "integration_admin_password")
+
+    source = SourceReference(
+        knowledge_base_id="default",
+        document_id="doc-1",
+        version_id="ver-1",
+        chunk_id="2f6d8a1c4b7e9f03d5a6c8e1b4f7a2d9",
+        title="中华人民共和国反洗钱法",
+        page_number=3,
+        article_number="第四条",
+    )
+
+    class AnswerService:
+        async def answer(self, _query):
+            return RagAnswer(
+                answer="### 结论\n\n反洗钱措施应与洗钱风险相适应[S1]。",
+                citations=(
+                    Citation(
+                        label="S1",
+                        source=source,
+                        excerpt="反洗钱工作应当依法进行，确保反洗钱措施与洗钱风险相适应。",
+                    ),
+                ),
+                evidence_support=EvidenceSupport(
+                    score=0.8,
+                    level=EvidenceSupportLevel.STRONG,
+                    method="retrieval_evidence_v1",
+                    explanation="表示当前检索证据对回答的支持程度，不是答案正确概率。",
+                ),
+            )
+
+    async def scenario():
+        async with app.router.lifespan_context(app):
+            status, _, body = await request(
+                "POST", "/api/v1/auth/login",
+                body={"username": "admin", "password": "integration_admin_password"},
+            )
+            assert status == 200
+            token = body["access_token"]
+
+            app.state.rag_service = AnswerService()
+            try:
+                status, _, body = await request(
+                    "POST", "/api/v1/qa/answer",
+                    body={"question": "反洗钱措施有哪些要求？"},
+                    token=token,
+                )
+            finally:
+                del app.state.rag_service
+
+            assert status == 200
+            citation = body["citations"][0]
+            assert citation["knowledge_base_id"] == "default"
+            assert citation["excerpt"] == "反洗钱工作应当依法进行，确保反洗钱措施与洗钱风险相适应。"
+            assert citation["article_number"] == "第四条"
+            assert citation["page_number"] == 3
+            assert body["answer"].startswith("### 结论")
 
     asyncio.run(scenario())

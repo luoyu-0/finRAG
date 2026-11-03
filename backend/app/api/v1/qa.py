@@ -54,7 +54,8 @@ async def answer_route(
             {"label": item.label, "document_id": item.source.document_id,
              "version_id": item.source.version_id, "chunk_id": item.source.chunk_id,
              "title": item.source.title, "page_number": item.source.page_number,
-             "article_number": item.source.article_number, "source_url": item.source.source_url}
+             "article_number": item.source.article_number, "source_url": item.source.source_url,
+             "knowledge_base_id": item.source.knowledge_base_id, "excerpt": item.excerpt}
             for item in result.citations
         ],
         "evidence_support": {

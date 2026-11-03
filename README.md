@@ -118,7 +118,7 @@ docker compose ps
 - Milvus WebUI：<http://127.0.0.1:9091/webui/>
 - MinIO 控制台：<http://127.0.0.1:9001>
 
-首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。后端镜像构建时还会通过 Debian 软件源安装 PaddleOCR/OpenCV 所需的系统库；这不是容器每次启动都要执行的步骤。Compose 默认使用清华 Debian 镜像站加快当前开发环境的首次构建，其他网络可在 `.env` 中设置 `DEBIAN_MIRROR` 和 `DEBIAN_SECURITY_MIRROR` 切换软件源。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段现返回 Markdown 字符串，引用和证据支持度仍在独立字段中；前端 Markdown 渲染由后续适配完成。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
+首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。后端镜像构建时还会通过 Debian 软件源安装 PaddleOCR/OpenCV 所需的系统库；这不是容器每次启动都要执行的步骤。Compose 默认使用清华 Debian 镜像站加快当前开发环境的首次构建，其他网络可在 `.env` 中设置 `DEBIAN_MIRROR` 和 `DEBIAN_SECURITY_MIRROR` 切换软件源。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段返回 Markdown 字符串，前端按 Markdown 渲染小标题、列表与段落，引用标记仍在正文内显示为角标；引用与证据支持度仍是独立字段。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
 
 ```bash
 docker compose ps
@@ -186,6 +186,14 @@ docker compose run --rm --no-deps backend python process_docs.py
 ### Windows 常见启动问题
 
 如果构建阶段无法访问 `auth.docker.io` 或 `registry-1.docker.io`，并出现 `failed to fetch oauth token`，通常是 Docker Desktop 未正确使用当前 VPN、代理或 DNS。可先关闭 Docker Desktop，执行 `ipconfig /flushdns` 和 `wsl --shutdown`，再确认 VPN 的系统代理或 TUN 模式已经覆盖 Docker Desktop 后重试。不建议为临时网络问题修改 Dockerfile 或使用来源不明的镜像加速地址。
+
+如果后端镜像构建在 `pip install` 阶段出现 `Read timed out`（常见于下载 `paddlepaddle` 等大包），属于 PyPI 网络问题。可在 `.env` 中指定镜像源，无需改动 Dockerfile：
+
+```dotenv
+PIP_INDEX_URL=https://pypi.mirrors.ustc.edu.cn/simple/
+```
+
+留空时使用官方 PyPI；更换镜像源后重新执行 `docker compose build backend` 即可。
 
 如果本机已经安装 MySQL，宿主机 `3306` 端口可能被占用。此时只需在本地 `.env` 中调整映射端口，例如：
 

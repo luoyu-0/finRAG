@@ -27,6 +27,22 @@ from app.services.rag.fusion import ReciprocalRankFusion
 from app.services.rag.ports import AnswerGenerator, Reranker
 from app.services.rag.scoring import RetrievalEvidenceScorer
 
+# 正文中的引用标记，如 `[S1]`、`[S12]`。
+CITATION_MARKER = re.compile(r"\[(S\d+)\]")
+# 来源卡片展示的原文摘录长度上限，与前端卡片宽度匹配。
+EXCERPT_LIMIT = 240
+
+
+def _excerpt(text: str) -> str | None:
+    """把分块正文压成单行摘录；空文本返回 None，由前端不展示引文段。"""
+
+    compact = " ".join(text.split())
+    if not compact:
+        return None
+    if len(compact) <= EXCERPT_LIMIT:
+        return compact
+    return f"{compact[:EXCERPT_LIMIT]}…"
+
 
 class RagService:
     """协调检索、融合、上下文、生成和引用输出。"""
@@ -81,7 +97,11 @@ class RagService:
             raise GenerationContractError("生成器返回了空回答")
 
         context_by_label = {item.label: item for item in context.items}
-        labels = tuple(dict.fromkeys(generated.citation_labels))
+        # 正文里的行内标记与 citation_labels 取并集：模型只在内嵌标记里写引用、
+        # 或只填 citation_labels 时，都能得到可定位的 citations（契约 §6）。
+        labels = tuple(
+            dict.fromkeys([*generated.citation_labels, *CITATION_MARKER.findall(answer)])
+        )
         if not labels:
             return self._no_evidence(warnings)
         unknown_labels = [label for label in labels if label not in context_by_label]
@@ -91,7 +111,12 @@ class RagService:
 
         cited_items = tuple(context_by_label[label] for label in labels)
         citations = tuple(
-            Citation(label=item.label, source=item.hit.source) for item in cited_items
+            Citation(
+                label=item.label,
+                source=item.hit.source,
+                excerpt=_excerpt(item.hit.text),
+            )
+            for item in cited_items
         )
         support = self._evidence_scorer.score(cited_items, len(self._retrievers))
         if context.truncated:
