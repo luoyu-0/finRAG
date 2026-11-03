@@ -11,10 +11,11 @@ import { ApiError } from "../../api/errors";
 import { addFavorite, removeFavorite } from "../../api/favorites";
 import { deleteHistory, listHistory } from "../../api/history";
 import { apiClient } from "../../api/session";
-import { AnswerText, hasCitationMarkers, stripCitationMarkers } from "../../components/AnswerText";
+import { AnswerText, hasCitationMarkers } from "../../components/AnswerText";
 import { Badge } from "../../components/Badge";
 import { CitationList } from "../../components/CitationList";
 import { EvidenceMeter } from "../../components/EvidenceMeter";
+import { MarkdownText, stripMarkdown } from "../../components/MarkdownText";
 import { PageState } from "../../components/PageState";
 import { Pagination } from "../../components/Pagination";
 import { useLoader } from "../../hooks/useLoader";
@@ -155,7 +156,7 @@ export function HistoryPage() {
                   // 正文内嵌 [S1] 时用行内角标，否则回退为来源列表（契约 §6）。
                   const inlineCitations =
                     record.citations.length > 0 && hasCitationMarkers(record.answer);
-                  const plainAnswer = stripCitationMarkers(record.answer);
+                  const plainAnswer = stripMarkdown(record.answer);
                   const excerpt =
                     plainAnswer.length > EXCERPT_LENGTH
                       ? `${plainAnswer.slice(0, EXCERPT_LENGTH)}…`
@@ -210,7 +211,7 @@ export function HistoryPage() {
                             />
                           ) : (
                             <>
-                              <p className="record__body">{record.answer}</p>
+                              <MarkdownText className="record__body" text={record.answer} />
                               <CitationList citations={record.citations} />
                             </>
                           )}

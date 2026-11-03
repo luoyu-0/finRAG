@@ -39,7 +39,7 @@ describe("制度问答页", () => {
 
     expect(await screen.findByText(/根据检索到的示例条文/)).toBeInTheDocument();
     expect(screen.getByText(/证据支持度：较强/)).toBeInTheDocument();
-    expect(screen.getByText(/可点击查看条文来源/)).toBeInTheDocument();
+    expect(screen.getByText(/可查看条文来源/)).toBeInTheDocument();
     expect(screen.getByText(/trace_demo_strong/)).toBeInTheDocument();
 
     // 正文内嵌 [S1]/[S2]/[S3] → 渲染为角标，底部不再堆来源列表
