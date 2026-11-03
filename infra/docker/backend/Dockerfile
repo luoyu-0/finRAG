@@ -8,8 +8,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# 未指定 PIP_INDEX_URL 时使用官方 PyPI；国内网络可在 .env 指向镜像源，
+# 否则下载 paddlepaddle 等大包容易 Read timed out。
+ARG PIP_INDEX_URL=
 COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir --requirement requirements.txt
+RUN pip install --no-cache-dir --retries 10 --timeout 120 \
+    ${PIP_INDEX_URL:+--index-url "${PIP_INDEX_URL}"} \
+    --requirement requirements.txt
 
 ARG DEBIAN_MIRROR=https://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=https://deb.debian.org/debian-security

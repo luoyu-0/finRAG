@@ -180,6 +180,14 @@ docker compose run --rm --no-deps backend python process_docs.py
 
 如果构建阶段无法访问 `auth.docker.io` 或 `registry-1.docker.io`，并出现 `failed to fetch oauth token`，通常是 Docker Desktop 未正确使用当前 VPN、代理或 DNS。可先关闭 Docker Desktop，执行 `ipconfig /flushdns` 和 `wsl --shutdown`，再确认 VPN 的系统代理或 TUN 模式已经覆盖 Docker Desktop 后重试。不建议为临时网络问题修改 Dockerfile 或使用来源不明的镜像加速地址。
 
+如果后端镜像构建在 `pip install` 阶段出现 `Read timed out`（常见于下载 `paddlepaddle` 等大包），属于 PyPI 网络问题。可在 `.env` 中指定镜像源，无需改动 Dockerfile：
+
+```dotenv
+PIP_INDEX_URL=https://pypi.mirrors.ustc.edu.cn/simple/
+```
+
+留空时使用官方 PyPI；更换镜像源后重新执行 `docker compose build backend` 即可。
+
 如果本机已经安装 MySQL，宿主机 `3306` 端口可能被占用。此时只需在本地 `.env` 中调整映射端口，例如：
 
 ```dotenv
