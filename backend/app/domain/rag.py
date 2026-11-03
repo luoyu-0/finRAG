@@ -170,6 +170,7 @@ class Citation:
 
     label: str
     source: SourceReference
+    excerpt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

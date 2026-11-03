@@ -38,9 +38,14 @@ class QuestionRequest(BaseModel):
 
 
 class CitationResponse(BaseModel):
-    """来源引用。"""
+    """来源引用。
+
+    `knowledge_base_id` 供前端点击角标跳转到对应知识库；`excerpt` 是该分块的
+    原文摘录，供来源卡片展示（契约 §6，两者均为可选）。
+    """
 
     label: str
+    knowledge_base_id: str | None = None
     document_id: str
     version_id: str
     chunk_id: str
@@ -48,6 +53,7 @@ class CitationResponse(BaseModel):
     page_number: int | None = None
     article_number: str | None = None
     source_url: str | None = None
+    excerpt: str | None = None
 
 
 class EvidenceSupportResponse(BaseModel):
