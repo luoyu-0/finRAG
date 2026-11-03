@@ -1,16 +1,19 @@
 /**
  * 带条文角标的回答正文。
  *
- * 契约 §6 要求后端在 `answer` 的引用位置内嵌 `[S1]`、`[S2]` 形式的标签。
- * 前端据此渲染为可点击的上标角标；点击后在角标旁弹出小卡片展示该条来源。
+ * 交互（按界面评审意见调整）：
+ * - **悬停**角标即显示来源卡片；移开后延迟收起，留出把指针移入卡片的时间；
+ * - **点击**角标跳转到知识库页面，并定位到该条引用对应的文档；
+ * - 键盘可用：聚焦角标同样显示卡片，`Esc` 收起。
  *
- * 注意：同一引用标签可能在正文出现多次，因此展开状态用**段落下标**标识，
- * 而不是标签本身，否则同一标签的多个角标会同时弹出卡片。
+ * 同一引用标签可能在正文出现多次，展开状态按**段落下标**记录，
+ * 否则同一标签的多个角标会同时弹出卡片。
  *
  * 若正文没有任何标记（后端尚未按契约输出），调用方应回退为纯文本 + 来源列表，
  * 因此本模块额外导出 `hasCitationMarkers` 供调用方判断。
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { CitationPopover } from "./CitationPopover";
 import type { Citation } from "../types/qa";
@@ -20,6 +23,8 @@ export type AnswerSegment =
 
 const MARKER_PATTERN = /\[(S\d+)\]/;
 const MARKER_SOURCE = "\\[(S\\d+)\\]";
+/** 移开指针后的收起延迟：让使用者有时间把指针移进卡片点击链接。 */
+const HOVER_CLOSE_DELAY_MS = 240;
 
 /** 正文是否内嵌了引用标记。 */
 export function hasCitationMarkers(text: string): boolean {
@@ -55,6 +60,18 @@ export function parseAnswer(text: string): AnswerSegment[] {
   return segments;
 }
 
+/** 点击角标的跳转目标：知识库详情页，并用 `doc` 参数定位到该文档。 */
+function citationTarget(citation: Citation | undefined): string {
+  if (citation === undefined) {
+    return "/knowledge";
+  }
+  const scope =
+    citation.knowledge_base_id === undefined
+      ? "/knowledge"
+      : `/knowledge/${encodeURIComponent(citation.knowledge_base_id)}`;
+  return `${scope}?doc=${encodeURIComponent(citation.document_id)}`;
+}
+
 interface AnswerTextProps {
   text: string;
   citations: Citation[];
@@ -65,27 +82,38 @@ interface AnswerTextProps {
 export function AnswerText({ text, citations, className = "qa__answer-body" }: AnswerTextProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const navigate = useNavigate();
+
+  const cancelScheduledClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    cancelScheduledClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      setActiveIndex(null);
+      closeTimerRef.current = null;
+    }, HOVER_CLOSE_DELAY_MS);
+  }, [cancelScheduledClose]);
+
+  // 组件卸载时清掉待执行的定时器，避免对已卸载组件 setState。
+  useEffect(() => cancelScheduledClose, [cancelScheduledClose]);
 
   useEffect(() => {
     if (activeIndex === null) {
       return;
-    }
-
-    function handlePointerDown(event: MouseEvent): void {
-      if (containerRef.current !== null && !containerRef.current.contains(event.target as Node)) {
-        setActiveIndex(null);
-      }
     }
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         setActiveIndex(null);
       }
     }
-
-    document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [activeIndex]);
@@ -102,22 +130,44 @@ export function AnswerText({ text, citations, className = "qa__answer-body" }: A
           return <span key={`text-${String(index)}`}>{segment.value}</span>;
         }
 
+        const citation = byLabel.get(segment.label);
         const expanded = activeIndex === index;
+
         return (
-          <span className="cite-wrap" key={`cite-${String(index)}-${segment.label}`}>
+          <span
+            className="cite-wrap"
+            key={`cite-${String(index)}-${segment.label}`}
+            onMouseEnter={() => {
+              cancelScheduledClose();
+              setActiveIndex(index);
+            }}
+            onMouseLeave={scheduleClose}
+          >
             <button
               type="button"
               className="cite"
               aria-expanded={expanded}
-              aria-label={`查看第 ${String(segment.order)} 条条文来源`}
-              onClick={() => setActiveIndex(expanded ? null : index)}
+              aria-label={`第 ${String(segment.order)} 条条文来源：悬停查看，点击跳转到知识库`}
+              onFocus={() => {
+                cancelScheduledClose();
+                setActiveIndex(index);
+              }}
+              onBlur={scheduleClose}
+              onClick={() => {
+                cancelScheduledClose();
+                setActiveIndex(null);
+                navigate(citationTarget(citation));
+              }}
             >
               {segment.order}
             </button>
             {expanded ? (
               <CitationPopover
-                citation={byLabel.get(segment.label)}
-                onClose={() => setActiveIndex(null)}
+                citation={citation}
+                onClose={() => {
+                  cancelScheduledClose();
+                  setActiveIndex(null);
+                }}
               />
             ) : null}
           </span>

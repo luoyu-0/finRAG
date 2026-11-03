@@ -87,8 +87,9 @@ export function mockCurrentUser(token: string | null): User {
 const DEMO_CITATIONS: Citation[] = [
   {
     label: "S1",
-    document_id: "doc_demo_001",
-    version_id: "ver_demo_001",
+    knowledge_base_id: "kb_001",
+    document_id: "doc_001",
+    version_id: "ver_001b",
     chunk_id: "chunk_demo_001",
     title: "商业银行流动性风险管理办法（示例）",
     page_number: 12,
@@ -99,8 +100,9 @@ const DEMO_CITATIONS: Citation[] = [
   },
   {
     label: "S2",
-    document_id: "doc_demo_001",
-    version_id: "ver_demo_001",
+    knowledge_base_id: "kb_001",
+    document_id: "doc_001",
+    version_id: "ver_001b",
     chunk_id: "chunk_demo_042",
     title: "商业银行流动性风险管理办法（示例）",
     page_number: 18,
@@ -111,11 +113,12 @@ const DEMO_CITATIONS: Citation[] = [
   },
   {
     label: "S3",
-    document_id: "doc_demo_002",
-    version_id: "ver_demo_002",
+    knowledge_base_id: "kb_001",
+    document_id: "doc_004",
+    version_id: "ver_004a",
     chunk_id: "chunk_demo_107",
-    title: "银行业金融机构压力测试指引（示例）",
-    page_number: 6,
+    title: "系统重要性银行附加监管规定（示例）",
+    page_number: 8,
     article_number: "第九条",
     source_url: null,
     excerpt:

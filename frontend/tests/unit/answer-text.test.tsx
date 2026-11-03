@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,6 +14,7 @@ import type { Citation } from "../../src/types/qa";
 const CITATIONS: Citation[] = [
   {
     label: "S1",
+    knowledge_base_id: "kb_1",
     document_id: "doc_1",
     version_id: "ver_1",
     chunk_id: "chunk_1",
@@ -24,6 +26,7 @@ const CITATIONS: Citation[] = [
   },
   {
     label: "S2",
+    knowledge_base_id: "kb_2",
     document_id: "doc_2",
     version_id: "ver_2",
     chunk_id: "chunk_2",
@@ -33,6 +36,18 @@ const CITATIONS: Citation[] = [
     source_url: "https://example.org/policy.pdf",
   },
 ];
+
+function renderText(text: string, citations: Citation[] = CITATIONS) {
+  return render(
+    <MemoryRouter initialEntries={["/"]}>
+      <Routes>
+        <Route path="/" element={<AnswerText text={text} citations={citations} />} />
+        <Route path="/knowledge" element={<p>知识库列表页</p>} />
+        <Route path="/knowledge/:knowledgeBaseId" element={<p>知识库详情页</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 describe("引用标记解析", () => {
   it("识别正文是否包含标记", () => {
@@ -56,50 +71,73 @@ describe("引用标记解析", () => {
 });
 
 describe("AnswerText", () => {
-  it("把标记渲染为可点击的上标角标", () => {
-    render(<AnswerText text="甲[S1]乙" citations={CITATIONS} />);
+  it("把标记渲染为角标并给出 aria-expanded", () => {
+    renderText("甲[S1]乙");
 
-    expect(screen.getByRole("button", { name: "查看第 1 条条文来源" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /第 1 条条文来源/ })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
   });
 
-  it("点击角标弹出来源卡片，再次点击收起", async () => {
+  it("悬停角标即显示来源卡片，移开后收起", async () => {
     const user = userEvent.setup();
-    render(<AnswerText text="甲[S1]乙" citations={CITATIONS} />);
-    const anchor = screen.getByRole("button", { name: "查看第 1 条条文来源" });
+    renderText("甲[S1]乙");
+    const anchor = screen.getByRole("button", { name: /第 1 条条文来源/ });
 
     expect(screen.queryByText("制度甲（示例）")).not.toBeInTheDocument();
 
-    await user.click(anchor);
-    expect(screen.getByText("制度甲（示例）")).toBeInTheDocument();
+    await user.hover(anchor);
+    expect(await screen.findByText("制度甲（示例）")).toBeInTheDocument();
     expect(screen.getByText("第二十条")).toBeInTheDocument();
     expect(screen.getByText("第 12 页")).toBeInTheDocument();
     expect(screen.getByText("示例原文摘录甲。")).toBeInTheDocument();
 
-    await user.click(anchor);
-    expect(screen.queryByText("制度甲（示例）")).not.toBeInTheDocument();
+    await user.unhover(anchor);
+    await waitFor(() => {
+      expect(screen.queryByText("制度甲（示例）")).not.toBeInTheDocument();
+    });
   });
 
   it("按 Esc 关闭来源卡片", async () => {
     const user = userEvent.setup();
-    render(<AnswerText text="甲[S1]乙" citations={CITATIONS} />);
+    renderText("甲[S1]乙");
 
-    await user.click(screen.getByRole("button", { name: "查看第 1 条条文来源" }));
-    expect(screen.getByText("制度甲（示例）")).toBeInTheDocument();
+    await user.hover(screen.getByRole("button", { name: /第 1 条条文来源/ }));
+    expect(await screen.findByText("制度甲（示例）")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByText("制度甲（示例）")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("制度甲（示例）")).not.toBeInTheDocument();
+    });
+  });
+
+  it("点击角标跳转到该引用所属的知识库详情页", async () => {
+    const user = userEvent.setup();
+    renderText("甲[S1]乙");
+
+    await user.click(screen.getByRole("button", { name: /第 1 条条文来源/ }));
+
+    expect(await screen.findByText("知识库详情页")).toBeInTheDocument();
+  });
+
+  it("引用缺少知识库标识时点击退化为知识库列表页", async () => {
+    const user = userEvent.setup();
+    const noScope: Citation[] = [{ ...CITATIONS[0], knowledge_base_id: undefined }];
+    renderText("甲[S1]乙", noScope);
+
+    await user.click(screen.getByRole("button", { name: /第 1 条条文来源/ }));
+
+    expect(await screen.findByText("知识库列表页")).toBeInTheDocument();
   });
 
   it("缺少摘录与页码时不渲染对应字段，有来源链接时渲染外链", async () => {
     const user = userEvent.setup();
-    render(<AnswerText text="甲[S2]乙" citations={CITATIONS} />);
+    renderText("甲[S2]乙");
 
-    await user.click(screen.getByRole("button", { name: "查看第 1 条条文来源" }));
+    await user.hover(screen.getByRole("button", { name: /第 1 条条文来源/ }));
 
-    expect(screen.getByText("制度乙（示例）")).toBeInTheDocument();
+    expect(await screen.findByText("制度乙（示例）")).toBeInTheDocument();
     expect(screen.getByText("分块 chunk_2")).toBeInTheDocument();
     expect(screen.queryByText(/第 \d+ 页/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看原文" })).toHaveAttribute(
@@ -110,11 +148,13 @@ describe("AnswerText", () => {
 
   it("标记找不到对应引用时只渲染角标，不报错", async () => {
     const user = userEvent.setup();
-    render(<AnswerText text="甲[S9]乙" citations={CITATIONS} />);
+    renderText("甲[S9]乙");
 
-    await user.click(screen.getByRole("button", { name: "查看第 1 条条文来源" }));
-
+    const anchor = screen.getByRole("button", { name: /第 1 条条文来源/ });
+    await user.hover(anchor);
     expect(screen.queryByText("制度甲（示例）")).not.toBeInTheDocument();
-    expect(screen.getByText(/乙/)).toBeInTheDocument();
+
+    await user.click(anchor);
+    expect(await screen.findByText("知识库列表页")).toBeInTheDocument();
   });
 });

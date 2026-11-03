@@ -26,7 +26,9 @@ describe("知识库列表页", () => {
 
     expect(await screen.findByText("金融监管制度库")).toBeInTheDocument();
     expect(screen.getByText("支付与征信专题库")).toBeInTheDocument();
-    expect(screen.getByText("共 2 个")).toBeInTheDocument();
+    // 含真实语料知识库「人民银行公开制度库」
+    expect(screen.getByText("人民银行公开制度库")).toBeInTheDocument();
+    expect(screen.getByText("共 3 个")).toBeInTheDocument();
   });
 
   it("搜索无匹配时给出空状态提示", async () => {
