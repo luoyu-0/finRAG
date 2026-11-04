@@ -1,8 +1,8 @@
 # 金融制度 RAG 知识问答系统
 
-本项目面向银行监管政策、证券行业规范、保险制度等公开金融制度材料，计划建设一个支持文档导入、知识库构建、混合检索、自然语言问答、条文溯源和时效性管理的 RAG 知识问答系统。
+本项目面向金融制度材料，已搭建 TXT/PDF 离线导入、混合检索和可溯源问答的基础链路；知识库管理、在线上传、历史查询和收藏等功能仍需后端接口配套。
 
-当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。
+当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。RAG 流程由项目代码编排，当前未安装或调用 LangChain。
 
 ## 目标范围
 
@@ -20,13 +20,13 @@
 
 | 层次 | 选型 |
 | --- | --- |
-| 后端 | Python 3.12、FastAPI、LangChain |
+| 后端 | Python 3.12、FastAPI、自实现 RAG 编排；未接入 LangChain |
 | 前端 | React、TypeScript |
 | 结构化存储 | MySQL |
 | 向量存储 | Milvus |
 | LLM | DeepSeek API 已接入；是否满足课程“开源可商用”要求仍待确认 |
 | Embedding | [BAAI/bge-small-zh-v1.5](https://huggingface.co/BAAI/bge-small-zh-v1.5)，512 维；通过 Provider 保留替换能力 |
-| OCR | PaddleOCR 为主，Tesseract 为备用和对照基线 |
+| OCR | PaddleOCR 已接入 PDF 离线导入；Tesseract 尚未接入 |
 | 用户与鉴权 | 本地账户、短时 JWT Access Token、可撤销 Refresh Session、基础 RBAC |
 | 测试 | pytest、前端单元测试、端到端测试、接口测试 |
 | 部署 | Docker、Docker Compose |
@@ -50,14 +50,13 @@ finRAG/
 │  │  │  ├─ auth/             # 登录、会话、权限与账户安全
 │  │  │  ├─ rag/              # 检索、重排、生成与溯源编排
 │  │  │  ├─ documents/        # 文档解析、清洗、分段与标签处理
-│  │  │  └─ ocr/              # PaddleOCR、Tesseract 适配层
-│  │  └─ workers/             # 异步导入与索引任务
+│  │  │  └─ ocr/              # PaddleOCR 适配层
+│  │  └─ workers/             # 命令行导入与问答评测
 │  └─ tests/                  # 后端单元测试与集成测试
 ├─ frontend/                   # React/TypeScript Web 应用
 │  ├─ public/
 │  ├─ src/
 │  │  ├─ api/                 # 后端接口客户端
-│  │  ├─ assets/              # 静态资源
 │  │  ├─ components/          # 通用组件
 │  │  ├─ features/            # 登录、知识库、问答、历史记录等业务模块
 │  │  ├─ layouts/             # 页面布局
@@ -76,7 +75,7 @@ finRAG/
 
 ## 环境准备
 
-推荐优先采用 Docker 开发方式，普通使用者不需要分别安装 MySQL、Milvus、PaddleOCR 和 Tesseract。
+推荐优先采用 Docker 开发方式，普通使用者不需要分别安装 MySQL、Milvus 和 PaddleOCR。
 
 1. 安装 [Git](https://git-scm.com/downloads)。
 2. 安装 [Docker Desktop](https://docs.docker.com/desktop/)，Windows 用户按官方引导启用 WSL 2。
@@ -116,9 +115,11 @@ docker compose ps
 - 后端 API 文档：<http://127.0.0.1:8000/api/docs>
 - 后端健康检查：<http://127.0.0.1:8000/api/v1/health>
 - Milvus WebUI：<http://127.0.0.1:9091/webui/>
-- MinIO 控制台：<http://127.0.0.1:9001>
+- MinIO 控制台：<http://127.0.0.1:19001>（可通过 `MINIO_CONSOLE_PORT` 调整）
 
-首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。后端镜像构建时还会通过 Debian 软件源安装 PaddleOCR/OpenCV 所需的系统库；这不是容器每次启动都要执行的步骤。Compose 默认使用清华 Debian 镜像站加快当前开发环境的首次构建，其他网络可在 `.env` 中设置 `DEBIAN_MIRROR` 和 `DEBIAN_SECURITY_MIRROR` 切换软件源。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段返回 Markdown 字符串，前端按 Markdown 渲染小标题、列表与段落，引用标记仍在正文内显示为角标；引用与证据支持度仍是独立字段。前端单元测试仍使用隔离的 Mock 数据，开发与生产构建都调用真实接口。可通过以下命令再次确认服务状态：
+以上为默认地址。若 Windows 保留了 `8000` 端口，可在本地 `.env` 设置 `BACKEND_PORT=18000`；此时后端 API 文档与健康检查地址中的端口也改为 `18000`，前端仍从 `3000` 访问。
+
+首次构建会在容器内安装后端依赖、下载 BGE 模型、检查前端 TypeScript 并构建 Vite，因此无需在宿主机预装 Node.js 或 Python。后端镜像构建时还会通过 Debian 软件源安装 PaddleOCR/OpenCV 所需的系统库；这不是容器每次启动都要执行的步骤。Compose 默认使用清华 Debian 镜像站加快当前开发环境的首次构建，其他网络可在 `.env` 中设置 `DEBIAN_MIRROR` 和 `DEBIAN_SECURITY_MIRROR` 切换软件源。若 `DEEPSEEK_API_KEY` 为空，使用管理员登录后问答页会显示 `RAG_RETRIEVAL_UNAVAILABLE`；配置 Key 并重启后，可先导入文件再问答。问答接口的 `answer` 字段返回 Markdown 字符串，前端按 Markdown 渲染小标题、列表与段落，引用标记仍在正文内显示为角标；引用与证据支持度仍是独立字段。前端单元测试使用隔离的演示数据；通常开发和生产构建调用真实接口，显式设置 `VITE_DEMO=1` 时开发预览使用演示数据。可通过以下命令再次确认服务状态：
 
 ```bash
 docker compose ps
@@ -161,7 +162,7 @@ docker compose exec backend python -m app.workers.import_documents
 docker compose run --rm --no-deps backend python -m app.workers.import_documents --ocr
 ```
 
-导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；上传管理界面、导入任务进度和 PDF 复杂版面处理仍未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
+导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；前端已编写上传与任务进度页面，但真实环境没有对应的后端接口。PDF 复杂版面处理尚未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
 
 停止容器但保留数据：
 
@@ -243,11 +244,7 @@ npm run test:e2e
 - **云端环境**：服务器配置和验收方式等待评测方通知，在规格明确前不针对假定资源做专用裁剪。
 - **外部服务**：若采用 DeepSeek，则通过 API 调用；密钥只通过环境变量注入，不写入镜像或仓库。
 
-当前 Compose 使用 Milvus Standalone。按照 [Milvus 官方要求](https://milvus.io/docs/prerequisite-docker.md)，Docker Desktop 需要分配至少 8 GB 内存；若本机资源不足，可暂时只启动前后端与 MySQL，待后续开发向量检索时再启动 Milvus。
-
-```bash
-docker compose up -d --build mysql backend frontend
-```
+当前 Compose 使用 Milvus Standalone。即使执行 `docker compose up mysql backend frontend`，Compose 也会依据 `depends_on` 启动 Milvus 及其 etcd、MinIO 依赖；因此这不是低资源部署模式。资源不足时需调整 Docker Desktop 资源配置或另行设计不依赖 Milvus 的服务配置。
 
 ## 协作约定
 
@@ -265,9 +262,9 @@ docker compose up -d --build mysql backend frontend
 - [ ] 确认最终 LLM 方案；当前候选为 DeepSeek API，需确认课程合规性
 - [x] 确定初始 Embedding 方案
 - [x] 确定本地 Docker 为当前主要部署方式
-- [ ] 等待首批公开制度数据和企业验收测试集
+- [x] 使用现有本地 TXT/PDF 数据完成导入与 50 题开发基准评测；最终验收集仍待确认
 - [ ] 等待评测方确认云服务器配置和验收方式
-- [ ] 确定 API 契约、数据模型与切分策略
+- [x] 确定已实现问答接口、导入数据模型与分块策略；规划接口尚待实现
 - [x] 初始化后端、前端及 Docker Compose 配置
 - [x] 在 Windows 11 + Docker Desktop 上完成全量容器构建和健康检查验证
 - [x] 完成用户鉴权架构与选择性 OCR 路由规划
@@ -275,6 +272,8 @@ docker compose up -d --build mysql backend frontend
 - [x] 接入 Milvus 向量检索、BGE Embedding 和 DeepSeek 生成 Provider
 - [x] 实现 TXT/文字型 PDF 到向量索引的离线导入
 - [x] 接入 MySQL 中文关键词检索与向量融合
+- [x] 接入扫描 PDF 页的选择性 PaddleOCR、500 字符分块和 50 题开发基准评测命令
+- [ ] 实现知识库、文档上传/任务、历史查询和收藏的后端 API（前端页面已存在）
 - [ ] 接入 Reranker，并实现导入管理界面
 - [ ] 用正式数据验证端到端问答质量与课程指标
 
