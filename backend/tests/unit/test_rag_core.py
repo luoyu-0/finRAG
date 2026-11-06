@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,7 @@ from app.domain.rag import (
 )
 from app.services.rag.errors import (
     GenerationContractError,
+    GenerationFailedError,
     RetrievalUnavailableError,
 )
 from app.services.rag.fusion import ReciprocalRankFusion
@@ -86,6 +88,41 @@ class ReciprocalRankFusionTests(unittest.TestCase):
 
 
 class RagServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_generation_failure_logs_only_exception_types(self) -> None:
+        class FailingGenerator:
+            async def generate(self, query, context):
+                raise RuntimeError("不应进入日志的敏感内容")
+
+        service = RagService(
+            [StubRetriever("vector", [RetrievalHit(text="证据", source=source("chunk"))])],
+            FailingGenerator(),
+        )
+        with self.assertLogs("app.services.rag.orchestrator", level="WARNING") as logs:
+            with self.assertRaisesRegex(GenerationFailedError, "回答生成失败"):
+                await service.answer(RagQuery("测试生成故障"))
+        self.assertIn("RuntimeError", logs.output[0])
+        self.assertNotIn("敏感内容", logs.output[0])
+
+    async def test_concurrent_requests_keep_context_isolated(self) -> None:
+        class QueryRetriever:
+            name = "vector"
+
+            async def retrieve(self, query, limit):
+                await asyncio.sleep(0)
+                return [RetrievalHit(text=query.question, source=source(query.question))]
+
+        class EchoGenerator:
+            async def generate(self, query, context):
+                await asyncio.sleep(0)
+                assert context.items[0].hit.text == query.question
+                return GeneratorOutput(query.question + "[S1]", ("S1",))
+
+        service = RagService([QueryRetriever()], EchoGenerator())
+        answers = await asyncio.gather(*(
+            service.answer(RagQuery(question)) for question in ("流动性管理", "资本管理")
+        ))
+        self.assertEqual([a.citations[0].source.chunk_id for a in answers], ["流动性管理", "资本管理"])
+
     async def test_filters_inactive_sources_before_generation(self) -> None:
         active = RetrievalHit(text="有效制度证据", source=source("active"))
         inactive = RetrievalHit(
