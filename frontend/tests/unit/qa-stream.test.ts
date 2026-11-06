@@ -21,7 +21,7 @@ function response(text: string): Response {
 
 describe("问答流", () => {
   it("解码跨包正文并接收最终结果", async () => {
-    const delta = vi.fn();
+    const delta = vi.fn<(text: string) => void>();
     const result = await readQuestionStream(response(
       'event: delta\r\ndata: {"text":"中文正文"}\r\n\r\n' +
       'event: done\ndata: {"answer":"中文正文","citations":[],"evidence_support":{}}\n\n',
@@ -41,9 +41,9 @@ describe("问答流", () => {
   });
 
   it("流式请求沿用一次 401 刷新且不预读响应体", async () => {
-    const refresh = vi.fn(async () => "new-token");
+    const refresh = vi.fn<() => Promise<string>>(async () => "new-token");
     const stream = response('event: done\ndata: {}\n\n');
-    const fetchImpl = vi.fn().mockResolvedValueOnce({ ok: false, status: 401, text: async () => '{"error_code":"AUTH_TOKEN_EXPIRED","message":"过期"}' }).mockResolvedValueOnce(stream);
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce({ ok: false, status: 401, text: async () => '{"error_code":"AUTH_TOKEN_EXPIRED","message":"过期"}' } as Response).mockResolvedValueOnce(stream);
     const client = new ApiClient({ fetchImpl, getAccessToken: () => "token", refreshAccessToken: refresh });
     expect(await client.postStream("/qa/answer/stream", { question: "问题" })).toBe(stream);
     expect(refresh).toHaveBeenCalledOnce();

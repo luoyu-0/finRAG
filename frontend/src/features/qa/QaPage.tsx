@@ -107,7 +107,7 @@ export function QaPage() {
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await askQuestion(apiClient, { question: trimmed }, controller.signal,
-        (text) => setPartialAnswer((previous) => previous + text));
+        (delta) => setPartialAnswer((previous) => previous + delta));
       setResult(response);
       setPhase("success");
     } catch (caught) {
@@ -166,7 +166,7 @@ export function QaPage() {
                   className="btn"
                   disabled={busy || !question.trim() || overLimit}
                 >
-                  {busy ? "检索中…" : "提问"}
+                  {busy ? (partialAnswer ? "生成中…" : "检索中…") : "提问"}
                 </button>
               </div>
             </form>
