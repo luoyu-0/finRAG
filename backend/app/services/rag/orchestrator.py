@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
+
+from langchain_core.runnables import RunnableLambda
 
 from app.domain.rag import (
     Citation,
+    ContextPackage,
     EvidenceSupport,
     EvidenceSupportLevel,
     FusedHit,
@@ -27,6 +32,8 @@ from app.services.rag.fusion import ReciprocalRankFusion
 from app.services.rag.ports import AnswerGenerator, Reranker
 from app.services.rag.scoring import RetrievalEvidenceScorer
 
+logger = logging.getLogger(__name__)
+
 # 正文中的引用标记，如 `[S1]`、`[S12]`。
 CITATION_MARKER = re.compile(r"\[(S\d+)\]")
 # 来源卡片展示的原文摘录长度上限，与前端卡片宽度匹配。
@@ -42,6 +49,20 @@ def _excerpt(text: str) -> str | None:
     if len(compact) <= EXCERPT_LIMIT:
         return compact
     return f"{compact[:EXCERPT_LIMIT]}…"
+
+
+@dataclass
+class _RetrievedQuery:
+    query: RagQuery
+    results: dict[str, tuple[RetrievalHit, ...]]
+    warnings: list[str]
+
+
+@dataclass
+class _PreparedQuery:
+    query: RagQuery
+    context: ContextPackage
+    warnings: list[str]
 
 
 class RagService:
@@ -73,23 +94,45 @@ class RagService:
         self._context_assembler = context_assembler or ContextAssembler()
         self._evidence_scorer = evidence_scorer or RetrievalEvidenceScorer()
         self._retrieval_multiplier = retrieval_multiplier
+        self._chain = (
+            RunnableLambda(self._retrieve_query, name="hybrid_retrieval")
+            | RunnableLambda(self._prepare_context, name="fusion_and_context")
+            | RunnableLambda(self._generate_answer, name="generation_and_citations")
+        )
 
     async def answer(self, query: RagQuery) -> RagAnswer:
         """执行完整在线问答流程。"""
 
+        return await self._chain.ainvoke(query)
+
+    async def _retrieve_query(self, query: RagQuery) -> _RetrievedQuery:
         results, warnings = await self._retrieve(query)
-        fused = self._fusion.fuse(results, limit=query.top_k * self._retrieval_multiplier)
+        return _RetrievedQuery(query, results, warnings)
+
+    async def _prepare_context(self, state: _RetrievedQuery) -> _PreparedQuery:
+        query = state.query
+        fused = self._fusion.fuse(state.results, limit=query.top_k * self._retrieval_multiplier)
         ranked, rerank_warning = await self._rerank(query, fused)
+        warnings = list(state.warnings)
         if rerank_warning:
             warnings.append(rerank_warning)
         context = self._context_assembler.assemble(ranked[: query.top_k])
+        return _PreparedQuery(query, context, warnings)
 
+    async def _generate_answer(self, state: _PreparedQuery) -> RagAnswer:
+        query, context, warnings = state.query, state.context, list(state.warnings)
         if not context.items:
             return self._no_evidence(warnings)
 
         try:
             generated = await self._generator.generate(query, context)
         except Exception as exc:  # Provider 异常统一转换，避免泄露实现细节。
+            # 只记录异常类型，避免凭据、问题和制度正文进入日志。
+            logger.warning(
+                "RAG 生成失败：%s（原因：%s）",
+                type(exc).__name__,
+                type(exc.__cause__ or exc).__name__,
+            )
             raise GenerationFailedError("回答生成失败") from exc
 
         answer = generated.answer.strip()

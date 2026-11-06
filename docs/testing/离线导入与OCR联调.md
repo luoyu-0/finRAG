@@ -1,5 +1,7 @@
 # 离线导入与 OCR 联调
 
+> 本文只说明根目录 `process_docs.py` 调试脚本及当时的验证结果。正式问答索引由 `backend/app/workers/import_documents.py` 写入 MySQL/Milvus，支持 TXT/PDF；操作步骤见 [README](../../README.md)。
+
 ## 运行入口
 
 在仓库根目录准备 `data/raw/txts/`、`data/raw/pdfs/` 和 `data/raw/images/`，分别放入已获准使用的 TXT、PDF 和 JPG/PNG 文件。运行：
@@ -25,7 +27,7 @@ python -m pytest tests/integration/test_document_import.py
 
 测试使用临时 TXT、真实 PyMuPDF 生成的两页 PDF 和 OCR Stub，覆盖文本层优先、无文本页触发 OCR、临时图片清理、JSONL 输出和手动 OCR 命令的路径参数。测试不加载 PaddleOCR 模型、不下载模型权重，也不依赖 MySQL 或 Milvus。CI 除运行 pytest 外，还在构建的后端容器中执行 `process_docs.py --help`，验证脚本及依赖已进入镜像。
 
-## 当前限制
+## 此调试脚本的限制
 
 此脚本只完成基础清洗、OCR 文字提取和 JSONL 切分。OCR 文本框、置信度、Tesseract 备用实现、增量导入、Embedding 与 Milvus 写入尚未接入。扫描页首次运行可能需要下载 PaddleOCR 模型；结果应在入库前人工检查来源和条文质量。每次运行会覆盖现有 `chunks.jsonl`。
 

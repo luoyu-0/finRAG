@@ -12,6 +12,9 @@ from pathlib import Path
 from sqlalchemy import delete, select
 
 from app.core.database import initialize_database, session_factory
+from app.repositories.document_deduplication import (
+    ImportInProgressError, find_same_content, knowledge_base_import_lock, remove_document_index,
+)
 from app.repositories.document_models import ChunkRecord, DocumentRecord
 from app.repositories.milvus_chunks import MilvusChunkRepository
 from app.services.documents.native_import import parse_document
@@ -38,7 +41,19 @@ def _chunk_ids(document_id: str, version_id: str, count: int) -> list[str]:
 def import_file(
     path: Path, relative_path: str, knowledge_base_id: str,
     metadata: dict, repository: MilvusChunkRepository, embedding: BgeEmbeddingProvider,
-    *, ocr: OCRProvider | None = None,
+    *, ocr: OCRProvider | None = None, rebuild: bool = False,
+) -> tuple[int, tuple[str, ...]]:
+    with knowledge_base_import_lock(knowledge_base_id):
+        return _import_file(
+            path, relative_path, knowledge_base_id, metadata, repository, embedding,
+            ocr=ocr, rebuild=rebuild,
+        )
+
+
+def _import_file(
+    path: Path, relative_path: str, knowledge_base_id: str,
+    metadata: dict, repository: MilvusChunkRepository, embedding: BgeEmbeddingProvider,
+    *, ocr: OCRProvider | None = None, rebuild: bool = False,
 ) -> tuple[int, tuple[str, ...]]:
     raw = path.read_bytes()
     if len(raw) > 50 * 1024 * 1024:
@@ -53,6 +68,30 @@ def import_file(
     effective_to = _date(metadata.get("effective_to"))
     if effective_from and effective_to and effective_from > effective_to:
         raise ValueError("生效截止时间不能早于开始时间")
+    with session_factory()() as db:
+        duplicate = find_same_content(db, knowledge_base_id, file_hash)
+        if duplicate is not None and (duplicate.id != document_id or not rebuild):
+            # 显式修改制度状态等元数据时必须重建，不能悄悄保留旧过滤条件。
+            values = {
+                "policy_status": status, "source_url": metadata.get("source_url"),
+                "effective_from": effective_from.replace(tzinfo=None) if effective_from else None,
+                "effective_to": effective_to.replace(tzinfo=None) if effective_to else None,
+            }
+            if metadata.get("title"):
+                values["title"] = metadata["title"]
+            conflicts = [key for key, value in values.items()
+                         if key in metadata and getattr(duplicate, key) != value]
+            if conflicts:
+                raise ValueError(
+                    f"相同内容已存在，但元数据不同（{', '.join(conflicts)}）；"
+                    f"请在保留路径 {duplicate.file_name} 上使用 --rebuild 更新"
+                )
+            old = db.get(DocumentRecord, document_id)
+            if old is not None and old.id != duplicate.id:
+                # 同一路径改成另一已入库文件的内容时，移除该路径过时的索引。
+                remove_document_index(db, old, repository)
+                db.commit()
+            return 0, (f"内容与已入库文件 {duplicate.file_name} 相同，未重复解析或写入",)
     parsed = parse_document(path, ocr=ocr)
     title = metadata.get("title") or path.stem
     source_url = metadata.get("source_url")
@@ -108,6 +147,7 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=Path("/app/data/raw"))
     parser.add_argument("--knowledge-base-id", default="default")
     parser.add_argument("--ocr", action="store_true", help="对无文字层的 PDF 页面使用 PaddleOCR")
+    parser.add_argument("--rebuild", action="store_true", help="重建保留路径的现有索引；不同文件名的重复副本仍跳过")
     parser.add_argument("--paths-file", type=Path, help="只导入文件中列出的相对路径，每行一个")
     args = parser.parse_args()
     root = args.root.resolve()
@@ -158,10 +198,16 @@ def main() -> None:
             count, warnings = import_file(
                 path, relative, args.knowledge_base_id, metadata.get(relative, {}),
                 repository, embedding, ocr=ocr,
+                rebuild=args.rebuild,
             )
-            print(f"已导入 {relative}：{count} 个分块")
+            if count:
+                print(f"已导入 {relative}：{count} 个分块")
+            else:
+                print(f"已跳过 {relative}：内容重复")
             for warning in warnings:
                 print(f"  告警：{warning}")
+        except ImportInProgressError as exc:
+            raise SystemExit(str(exc)) from exc
         except Exception as exc:
             failed += 1
             print(f"导入失败 {relative}：{exc}")
