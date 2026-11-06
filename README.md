@@ -2,7 +2,7 @@
 
 本项目面向金融制度材料，已搭建 TXT/PDF 离线导入、混合检索和可溯源问答的基础链路；知识库管理、在线上传、历史查询和收藏等功能仍需后端接口配套。
 
-当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。RAG 流程由项目代码编排，当前未安装或调用 LangChain。
+当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。RAG 在线流程使用 LangChain LCEL 编排，DeepSeek 通过官方 ChatDeepSeek 适配器异步调用；过滤、融合和引用规则由领域模块维护。
 
 ## 目标范围
 
@@ -20,7 +20,7 @@
 
 | 层次 | 选型 |
 | --- | --- |
-| 后端 | Python 3.12、FastAPI、自实现 RAG 编排；未接入 LangChain |
+| 后端 | Python 3.12、FastAPI、LangChain LCEL、ChatDeepSeek |
 | 前端 | React、TypeScript |
 | 结构化存储 | MySQL |
 | 向量存储 | Milvus |
@@ -125,9 +125,15 @@ docker compose ps
 docker compose ps
 ```
 
+### LangChain 问答编排
+
+后端依赖包含 `langchain-core` 和官方 `langchain-deepseek` 集成包；这两者提供本项目实际使用的 LangChain 链、提示模板和模型适配能力，不额外引入 Agent/LangGraph 工作流。升级后执行 `docker compose up -d --build --wait backend`，已有数据库和向量索引可直接复用。`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和问答 API 保持兼容。
+
+模型请求保留 JSON 输出、1200 Token 上限、关闭思考和 45 秒请求超时；自动重试为 0，避免请求失败时隐式增加调用次数。LangSmith 云端追踪无需开启或配置。回归步骤见 [LangChain 迁移验证](docs/testing/LangChain迁移验证.md)。
+
 ### 导入 TXT 与 PDF
 
-将已获授权的 `.txt`、`.pdf` 放入 `data/raw/`，可建子目录。默认知识库 ID 为 `default`；缺少状态元数据时按团队本次决定默认标为 `active` 并参与检索。正式数据到位后应核对时效性，过期文件请在 `data/raw/metadata.json` 中显式标为 `inactive` 后重新导入。元数据以相对路径为键：
+将已获授权的 `.txt`、`.pdf` 放入 `data/raw/`，可建子目录。默认知识库 ID 为 `default`；缺少状态元数据时按团队本次决定默认标为 `active` 并参与检索。正式数据到位后应核对时效性，过期文件请在 `data/raw/metadata.json` 中显式标为 `inactive` 后，使用 `--rebuild` 重新导入保留的文件路径。元数据以相对路径为键：
 
 ```json
 {
@@ -141,9 +147,9 @@ docker compose ps
 }
 ```
 
-导入命令会按文件内容生成稳定版本 ID，并结合文档 ID 生成分块 ID，避免内容相同的不同文件发生主键冲突；再次运行会更新同一文件的索引。由旧版分块 ID 规则升级时需重新运行导入命令以重建索引，已有问答历史中的旧分块 ID 可能无法再定位到新索引。单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
+导入前按文件字节的 SHA-256 在同一知识库内去重：相同内容不论文件名是否相同都跳过，不再解析、OCR 或向量化；第一次入库的路径、文档 ID 和引用来源保留。不同知识库独立维护索引。文件内容变化时更新原路径索引；如果变成另一已入库文档的内容，则移除本路径过时的索引并复用已保留内容。分块 ID 仍包含文档和版本 ID，避免跨知识库或历史分块发生主键冲突。显式修改元数据、升级分块规则或恢复丢失的向量索引时，使用 `--rebuild` 重建保留路径；不同名称的重复副本即使指定该参数也会跳过。已有问答历史中的旧分块 ID 在重建后可能无法再定位。单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
 
-当前代码中的线上导入分块策略按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；修改分块规则或原文后须重新导入相应文件，才会影响在线问答。基于本地原始制度文件核对的 50 组问答样本见 [问答基准集](data/samples/qa_50_from_raw.json)。重建这 10 份来源文件的索引后，可从后端运行评测并在 `data/processed/qa_evaluation.json`、`data/processed/qa_evaluation.md` 查看逐题回答、引用命中和汇总结果：
+当前代码中的线上导入分块策略按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；修改原文后须重新导入，只修改分块规则时须加 `--rebuild`，才会影响在线问答。基于本地原始制度文件核对的 50 组问答样本见 [问答基准集](data/samples/qa_50_from_raw.json)。这些来源内容入库后，可从后端运行评测并在 `data/processed/qa_evaluation.json`、`data/processed/qa_evaluation.md` 查看逐题回答、引用命中和汇总结果：
 
 ```powershell
 $samplePath = (Resolve-Path data/samples).Path
@@ -156,7 +162,16 @@ docker compose run --rm --no-deps --volume "${samplePath}:/app/data/samples:ro" 
 docker compose exec backend python -m app.workers.import_documents
 ```
 
-扫描版或部分页面没有文字层的 PDF，使用一次性容器执行选择性 OCR 导入。首次运行会下载 PaddleOCR 模型并保存在 Docker 卷中；处理时间取决于扫描页数。识别页会记录“需人工复核”告警，重要制度和条文应核对原 PDF。若只需导入部分文件，在 `data/processed/ocr-targets.txt` 中逐行写入相对于 `data/raw/` 的路径，再加 `--paths-file /app/data/processed/ocr-targets.txt`。
+已有重复索引可先预览，再明确执行清理。清理会删除重复文档及其 MySQL/Milvus 分块，每组保留最先导入的一份；不会删除 `raw` 文件。旧回答引用被删除副本时，其旧分块 ID 不再有效。
+
+```powershell
+docker compose run --rm --no-deps backend python -m app.workers.deduplicate_documents
+docker compose run --rm --no-deps backend python -m app.workers.deduplicate_documents --apply
+```
+
+去重只判断文件字节完全相同，不合并格式不同、仅正文相近的文件。相同内容但显式元数据不一致时会报错，请在保留路径上使用 `--rebuild` 更新，避免误用旧制度状态。同一知识库的导入和清理通过 MySQL 连接锁互斥；另一个任务运行时需等待后重试。详细规则见 [内容去重验证](docs/testing/文档内容去重.md)。
+
+扫描版或部分页面没有文字层的 PDF，使用一次性容器执行选择性 OCR 导入。首次运行会下载 PaddleOCR 模型并保存在 Docker 卷中；处理时间取决于扫描页数。若此前已按原生文本导入，需要补识别缺字页，请在保留路径上使用 `--ocr --rebuild`；普通重复导入不会再次运行 OCR。识别页会记录“需人工复核”告警，重要制度和条文应核对原 PDF。若只需导入部分文件，在 `data/processed/ocr-targets.txt` 中逐行写入相对于 `data/raw/` 的路径，再加 `--paths-file /app/data/processed/ocr-targets.txt`。
 
 ```powershell
 docker compose run --rm --no-deps backend python -m app.workers.import_documents --ocr
