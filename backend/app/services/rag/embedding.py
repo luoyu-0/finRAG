@@ -7,6 +7,7 @@ from fastembed import TextEmbedding
 
 MODEL_NAME = "BAAI/bge-small-zh-v1.5"
 MODEL_DIMENSION = 512
+QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 
 
 class BgeEmbeddingProvider:
@@ -21,4 +22,5 @@ class BgeEmbeddingProvider:
         return [vector.tolist() for vector in self._model.embed(texts, batch_size=32)]
 
     def embed_query(self, question: str) -> list[float]:
-        return next(iter(self._model.query_embed(question))).tolist()
+        # BGE 官方建议短问题检索长正文时只给查询添加指令，文档向量不变。
+        return next(iter(self._model.query_embed(QUERY_INSTRUCTION + question))).tolist()
