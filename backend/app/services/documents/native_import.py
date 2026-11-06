@@ -14,6 +14,7 @@ from app.services.ocr.ports import OCRProvider
 
 
 STRUCTURE_RE = re.compile(r"第[零〇一二三四五六七八九十百千万0-9]+[章节条]")
+HEADING_RE = re.compile(r"第[零〇一二三四五六七八九十百千万0-9]+[章节][^\n。！？；;：:《》“”]{0,80}\Z")
 CHUNK_SIZE = 500
 OVERLAP = 50
 MIN_BREAK = CHUNK_SIZE // 2
@@ -38,9 +39,11 @@ def _structural_sections(text: str) -> list[tuple[str, str | None]]:
     markers = []
     for match in STRUCTURE_RE.finditer(text):
         previous = match.start() - 1
-        while previous >= 0 and text[previous] in " \t":
+        while previous >= 0 and text[previous].isspace() and text[previous] != "\n":
             previous -= 1
-        if previous < 0 or text[previous] in "\n。；;":
+        # 网页导出的章标题可能与首条正文粘连，标题内没有句末标点。
+        after_heading = bool(markers and HEADING_RE.fullmatch(text[markers[-1].start():match.start()].strip()))
+        if previous < 0 or text[previous] in "\n。；;" or after_heading:
             markers.append(match)
     if not markers:
         return [(text, None)]
@@ -57,6 +60,17 @@ def _structural_sections(text: str) -> list[tuple[str, str | None]]:
         end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
         sections.append((text[match.start():end], article))
     return sections
+
+
+def infer_single_article(text: str) -> str | None:
+    """仅为章标题后单条正文推断条号；多条混合或前置正文不作猜测。"""
+    sections = _structural_sections(text.strip())
+    articles = {article for _, article in sections if article}
+    if len(articles) != 1:
+        return None
+    if any(not article and not HEADING_RE.fullmatch(section.strip()) for section, article in sections):
+        return None
+    return next(iter(articles))
 
 
 def _chunk_sections(section: str) -> list[str]:

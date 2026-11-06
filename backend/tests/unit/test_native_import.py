@@ -7,10 +7,27 @@ from pathlib import Path
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from app.services.documents.native_import import _chunk_sections, parse_document
+from app.services.documents.native_import import _chunk_sections, _structural_sections, infer_single_article, parse_document
 
 
 class NativeImportTests(unittest.TestCase):
+    def test_backfill_does_not_guess_ambiguous_locations(self):
+        self.assertEqual(infer_single_article("第二章 标题 第六条 正文按第七条执行。"), "第六条")
+        self.assertIsNone(infer_single_article("说明文字。第六条 正文。"))
+        self.assertIsNone(infer_single_article("第六条 正文。第七条 另一条。"))
+        self.assertIsNone(infer_single_article("按第七条执行。"))
+
+    def test_inline_chapter_heading_preserves_article_number(self) -> None:
+        for text in ("第二章 设立与终止 第六条 机构应取得许可。", "第二章\u00a0 征信机构第五条\u00a0 本条例所称机构。"):
+            sections = _structural_sections(text)
+            self.assertIsNotNone(sections[-1][1])
+            self.assertEqual(len(sections), 2)
+
+    def test_article_reference_inside_body_is_not_a_heading(self) -> None:
+        sections = _structural_sections("第一条 应按本办法第六条规定办理，不得违反第七条。")
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0][1], "第一条")
+
     def test_txt_chunks_keep_article_location(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "制度.txt"
