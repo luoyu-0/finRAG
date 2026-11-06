@@ -120,7 +120,7 @@ def _write_report(path: Path, results: list[dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="运行问答基准并输出效果报告")
-    parser.add_argument("--dataset", type=Path, default=Path("/app/data/samples/qa_50_from_raw.json"))
+    parser.add_argument("--dataset", type=Path, default=Path("/app/data/samples/qa_100_from_raw.json"))
     parser.add_argument("--output", type=Path, default=Path("/app/data/processed/qa_evaluation.json"))
     parser.add_argument("--root", type=Path, default=Path("/app"))
     parser.add_argument("--knowledge-base-id", default="default")
@@ -129,8 +129,8 @@ def main() -> None:
     if args.limit < 0:
         parser.error("limit 不能为负数")
     cases = json.loads(args.dataset.read_text(encoding="utf-8"))
-    if not isinstance(cases, list) or len(cases) != 50:
-        parser.error("测试集必须包含 50 题")
+    if not isinstance(cases, list) or len(cases) != 100:
+        parser.error("测试集必须包含 100 题")
     selected = cases[:args.limit] if args.limit else cases
     initialize_database()
     indexed_ids = _validate_cases(selected, args.root.resolve(), args.knowledge_base_id)

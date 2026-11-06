@@ -149,7 +149,7 @@ docker compose ps
 
 导入前按文件字节的 SHA-256 在同一知识库内去重：相同内容不论文件名是否相同都跳过，不再解析、OCR 或向量化；第一次入库的路径、文档 ID 和引用来源保留。不同知识库独立维护索引。文件内容变化时更新原路径索引；如果变成另一已入库文档的内容，则移除本路径过时的索引并复用已保留内容。分块 ID 仍包含文档和版本 ID，避免跨知识库或历史分块发生主键冲突。显式修改元数据、升级分块规则或恢复丢失的向量索引时，使用 `--rebuild` 重建保留路径；不同名称的重复副本即使指定该参数也会跳过。已有问答历史中的旧分块 ID 在重建后可能无法再定位。单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
 
-当前代码中的线上导入分块策略按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；修改原文后须重新导入，只修改分块规则时须加 `--rebuild`，才会影响在线问答。基于本地原始制度文件核对的 50 组问答样本见 [问答基准集](data/samples/qa_50_from_raw.json)。这些来源内容入库后，可从后端运行评测并在 `data/processed/qa_evaluation.json`、`data/processed/qa_evaluation.md` 查看逐题回答、引用命中和汇总结果：
+当前代码中的线上导入分块策略按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；修改原文后须重新导入，只修改分块规则时须加 `--rebuild`，才会影响在线问答。开发评测集已扩充为 [100 题](data/samples/qa_100_from_raw.json)，覆盖 20 份已索引 TXT 制度；[原 50 题](data/samples/qa_50_from_raw.json)保留用于复核历史报告。运行评测后可在 `data/processed/qa_evaluation.json`、`data/processed/qa_evaluation.md` 查看逐题回答、引用命中和汇总结果：
 
 ```powershell
 $samplePath = (Resolve-Path data/samples).Path
