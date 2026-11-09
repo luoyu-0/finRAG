@@ -30,12 +30,13 @@ def _plain_text(value: str) -> str:
     return value.removeprefix("结论")
 
 
-def _validate_cases(cases: list[dict], root: Path, knowledge_base_id: str) -> None:
+def _validate_cases(cases: list[dict], root: Path, knowledge_base_id: str) -> dict[int, frozenset[str]]:
     errors = []
+    indexed_ids = {}
     with session_factory()() as db:
         for case in cases:
             source = (root / case["source_file"]).resolve()
-            if not source.is_relative_to(root) or not source.is_file():
+            if not source.is_relative_to(root / "data" / "raw") or not source.is_file():
                 errors.append(f"题 {case['id']}：来源文件不存在")
                 continue
             raw = source.read_bytes()
@@ -48,16 +49,23 @@ def _validate_cases(cases: list[dict], root: Path, knowledge_base_id: str) -> No
                 content = raw.decode("gb18030")
             if re.sub(r"\s+", "", case["evidence_excerpt"]) not in re.sub(r"\s+", "", content):
                 errors.append(f"题 {case['id']}：证据摘录不在原文中")
-            relative = source.relative_to(root / "data" / "raw").as_posix()
-            document_id = hashlib.sha256(f"{knowledge_base_id}:{relative}".encode()).hexdigest()[:32]
-            record = db.scalar(select(DocumentRecord).where(DocumentRecord.id == document_id))
-            if record is None or record.file_hash != digest:
+            # 内容去重后，测试集的文件名可能是保留文档的别名。
+            ids = frozenset(db.scalars(select(DocumentRecord.id).where(
+                DocumentRecord.knowledge_base_id == knowledge_base_id,
+                DocumentRecord.file_hash == digest,
+            )))
+            if not ids:
                 errors.append(f"题 {case['id']}：索引缺失或尚未按新原文重建")
+            indexed_ids[case["id"]] = ids
     if errors:
         raise ValueError("评测前校验失败：\n" + "\n".join(errors))
+    return indexed_ids
 
 
-async def _evaluate(cases: list[dict], service: RagService, knowledge_base_id: str) -> list[dict]:
+async def _evaluate(
+    cases: list[dict], service: RagService, knowledge_base_id: str,
+    indexed_ids: dict[int, frozenset[str]],
+) -> list[dict]:
     results = []
     for case in cases:
         started = datetime.now(UTC)
@@ -66,13 +74,12 @@ async def _evaluate(cases: list[dict], service: RagService, knowledge_base_id: s
             answer = await service.answer(RagQuery(
                 case["question"], filters=RetrievalFilters(knowledge_base_ids=(knowledge_base_id,)),
             ))
-            expected_relative = case["source_file"].removeprefix("data/raw/")
-            expected_id = hashlib.sha256(f"{knowledge_base_id}:{expected_relative}".encode()).hexdigest()[:32]
+            expected_ids = indexed_ids[case["id"]]
             item.update({
                 "answer": answer.answer,
                 "similarity": round(SequenceMatcher(None, _plain_text(case["ground_truth"]), _plain_text(answer.answer)).ratio(), 4),
-                "source_hit": any(c.source.document_id == expected_id for c in answer.citations),
-                "clause_hit": any(c.source.document_id == expected_id and c.source.article_number == case["relevant_clause"] for c in answer.citations),
+                "source_hit": any(c.source.document_id in expected_ids for c in answer.citations),
+                "clause_hit": any(c.source.document_id in expected_ids and c.source.article_number == case["relevant_clause"] for c in answer.citations),
                 "citations": [{"document_id": c.source.document_id, "title": c.source.title,
                                "article_number": c.source.article_number, "chunk_id": c.source.chunk_id}
                               for c in answer.citations],
@@ -126,7 +133,7 @@ def main() -> None:
         parser.error("测试集必须包含 50 题")
     selected = cases[:args.limit] if args.limit else cases
     initialize_database()
-    _validate_cases(selected, args.root.resolve(), args.knowledge_base_id)
+    indexed_ids = _validate_cases(selected, args.root.resolve(), args.knowledge_base_id)
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
         parser.error("DEEPSEEK_API_KEY 未配置")
@@ -136,7 +143,7 @@ def main() -> None:
     )
     service = RagService((vector, KeywordChunkRetriever()),
                          DeepSeekAnswerGenerator(api_key, model=os.getenv("DEEPSEEK_MODEL", "deepseek-flash")))
-    results = asyncio.run(_evaluate(selected, service, args.knowledge_base_id))
+    results = asyncio.run(_evaluate(selected, service, args.knowledge_base_id, indexed_ids))
     _write_report(args.output, results)
     print(f"报告已写入 {args.output} 和 {args.output.with_suffix('.md')}")
 

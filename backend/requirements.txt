@@ -10,3 +10,5 @@ paddleocr==3.7.0
 pypdf==6.21.2
 pymilvus==2.6.17
 fastembed==0.7.4
+langchain-core==1.7.6
+langchain-deepseek==1.1.1
