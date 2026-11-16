@@ -45,13 +45,24 @@ export async function readQuestionStream(
         const frame = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);
         const lines = frame.split("\n");
-        const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
-        const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+        const event = lines
+          .find((line) => line.startsWith("event:"))
+          ?.slice(6)
+          .trim();
+        const data = lines
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
         if (!data) continue;
         const payload = JSON.parse(data);
         if (event === "error") throw new ApiError(502, payload.error_code, payload.message);
         if (event === "delta" && typeof payload.text === "string") onDelta?.(payload.text);
-        if (event === "done" && typeof payload.answer === "string" && Array.isArray(payload.citations) && payload.evidence_support) {
+        if (
+          event === "done" &&
+          typeof payload.answer === "string" &&
+          Array.isArray(payload.citations) &&
+          payload.evidence_support
+        ) {
           return payload as QuestionResponse;
         }
       }

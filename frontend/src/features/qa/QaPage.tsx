@@ -106,8 +106,12 @@ export function QaPage() {
     activeRequest.current = controller;
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await askQuestion(apiClient, { question: trimmed }, controller.signal,
-        (delta) => setPartialAnswer((previous) => previous + delta));
+      const response = await askQuestion(
+        apiClient,
+        { question: trimmed },
+        controller.signal,
+        (delta) => setPartialAnswer((previous) => previous + delta),
+      );
       setResult(response);
       setPhase("success");
     } catch (caught) {
