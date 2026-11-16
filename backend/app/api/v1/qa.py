@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.core.exceptions import ApiError
 from app.domain.rag import RagAnswer, RagQuery, RetrievalFilters
 from app.repositories.auth_models import QaRecord, UserRecord
+from app.repositories.page_models import QuestionFilters
 from app.schemas.qa import QuestionRequest, QuestionResponse
 from app.services.rag.errors import GenerationContractError, GenerationFailedError, RetrievalUnavailableError
 from app.services.rag.orchestrator import RagService
@@ -75,12 +76,16 @@ def _save_answer(result: RagAnswer, query: RagQuery, user: UserRecord, db: Sessi
         },
         "warnings": list(result.warnings), "trace_id": trace_id,
     })
+    record_id = str(uuid4())
     db.add(QaRecord(
-        id=str(uuid4()), user_id=user.id, question=query.question, answer=response.answer,
+        id=record_id, user_id=user.id, question=query.question, answer=response.answer,
         citations=[item.model_dump() for item in response.citations],
         evidence_support=response.evidence_support.model_dump(), warnings=response.warnings,
         trace_id=trace_id, created_at=datetime.now(UTC).replace(tzinfo=None),
     ))
+    db.flush()
+    db.add(QuestionFilters(qa_id=record_id, knowledge_base_ids=list(query.filters.knowledge_base_ids),
+                           effective_at=query.filters.effective_at.astimezone(UTC).replace(tzinfo=None)))
     db.commit()
     return response
 

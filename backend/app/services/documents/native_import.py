@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import tempfile
+from xml.etree import ElementTree
+from zipfile import ZipFile
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from pathlib import Path
@@ -136,7 +138,23 @@ def parse_document(path: Path, *, ocr: OCRProvider | None = None) -> ParsedDocum
             if rendered_pdf is not None:
                 rendered_pdf.close()
         page_count = len(pages)
-    elif suffix == ".txt":
+    elif suffix == ".docx":
+        # 只读 Word 主文档的段落和表格文字，限制解压大小。
+        with ZipFile(path) as archive:
+            member = archive.getinfo("word/document.xml")
+            if member.file_size > 50 * 1024 * 1024:
+                raise ValueError("DOCX 解压后正文超过 50 MB")
+            root = ElementTree.fromstring(archive.read(member))
+        ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        content = "\n".join("".join(node.text or "" for node in para.iter(ns + "t"))
+                            for para in root.iter(ns + "p"))
+        pages = [(None, content)]
+        page_count = 0
+    elif suffix in {".png", ".jpg", ".jpeg"} and ocr is not None:
+        pages = [(1, ocr.recognize(path))]
+        page_count = 1
+        warnings.append("第 1 页经 OCR 识别，需人工复核")
+    elif suffix in {".txt", ".md"}:
         data = path.read_bytes()
         try:
             content = data.decode("utf-8-sig")

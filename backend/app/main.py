@@ -3,6 +3,9 @@ import os
 
 from fastapi import FastAPI
 
+from app.api.v1.history import router as history_router
+from app.api.v1.knowledge import router as knowledge_router, sync_catalog
+from app.api.v1.ingestion import router as ingestion_router, recover_tasks
 from app.api.v1.auth import router as auth_router
 from app.api.v1.qa import router as qa_router
 from app.api.v1.users import router as users_router
@@ -21,6 +24,8 @@ async def lifespan(_app: FastAPI):
     initialize_database()
     with session_factory()() as db:
         bootstrap_admin(db)
+        sync_catalog(db)
+        recover_tasks(db)
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if api_key:
         embedding = BgeEmbeddingProvider()
@@ -47,6 +52,9 @@ install_error_handlers(app)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(qa_router)
+app.include_router(knowledge_router)
+app.include_router(history_router)
+app.include_router(ingestion_router)
 
 
 @app.get("/api/v1/health", tags=["system"])

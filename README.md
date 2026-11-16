@@ -1,6 +1,6 @@
 # 金融制度 RAG 知识问答系统
 
-本项目面向金融制度材料，已搭建 TXT/PDF 离线导入、混合检索和可溯源问答的基础链路；知识库管理、在线上传、历史查询和收藏等功能仍需后端接口配套。
+本项目面向金融制度材料，已搭建 TXT/PDF 离线导入、混合检索和可溯源问答的基础链路；知识库、在线上传、问答历史和收藏页面均已接入后端。
 
 当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。RAG 在线流程使用 LangChain LCEL 编排，DeepSeek 通过官方 ChatDeepSeek 适配器异步调用；过滤、融合和引用规则由领域模块维护。
 
@@ -179,7 +179,7 @@ docker compose run --rm --no-deps backend python -m app.workers.deduplicate_docu
 docker compose run --rm --no-deps backend python -m app.workers.import_documents --ocr
 ```
 
-导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；前端已编写上传与任务进度页面，但真实环境没有对应的后端接口。PDF 复杂版面处理尚未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
+导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；管理员可在文档导入页上传文件、查看任务进度并重试失败任务。PDF 复杂版面处理尚未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
 
 停止容器但保留数据：
 
