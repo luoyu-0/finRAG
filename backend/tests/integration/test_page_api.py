@@ -33,13 +33,22 @@ class PageApiTests(unittest.TestCase):
             self.assertEqual(client.post(root+"/knowledge-bases", headers=user,json={"name":"无权创建"}).status_code,403)
             self.assertEqual(client.get(root+"/knowledge-bases/"+key+"/stats", headers=user).status_code,200)
             with session_factory()() as db:
-                db.add(QaRecord(id="record", user_id=user_id, question="测试问题", answer="测试回答", citations=[],
+                db.add(QaRecord(id="record", user_id=user_id, question="测试问题", answer="测试回答[S1]",
+                                citations=[{"label":"S1","document_id":"doc","version_id":"ver","chunk_id":"chunk",
+                                            "title":"测试制度","article_number":"第一条","excerpt":"测试条文"}],
                                 evidence_support={"score":0,"level":"none","method":"test","explanation":"测试"},
                                 warnings=[],trace_id="trace",created_at=now()))
                 db.commit()
             self.assertEqual(client.get(root+"/qa/history/record", headers=admin).status_code,403)
             fav = client.post(root+"/favorites", headers=user,json={"qa_id":"record"})
             self.assertEqual(fav.status_code,201)
+            # 收藏只存摘要，但页面要按问答页渲染正文与角标，因此联表带回原文与引用。
+            self.assertEqual(fav.json()["answer"], "测试回答[S1]")
+            self.assertEqual([c["label"] for c in fav.json()["citations"]], ["S1"])
+            listed = client.get(root+"/favorites",headers=user).json()["items"][0]
+            self.assertEqual(listed["answer"], "测试回答[S1]")
+            self.assertEqual(listed["citations"][0]["article_number"], "第一条")
+            self.assertEqual(listed["answer_excerpt"], "测试回答[S1]")
             self.assertEqual(client.post(root+"/favorites",headers=user,json={"qa_id":"record"}).status_code,409)
             history=client.get(root+"/qa/history?q=测试&favorited=true",headers=user).json()
             self.assertEqual(history["items"][0]["favorite_id"],fav.json()["id"])

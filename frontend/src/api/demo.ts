@@ -358,6 +358,9 @@ let favorites: FavoriteRecord[] = [
     question: "商业银行应如何管理流动性风险？",
     answer_excerpt:
       "根据检索到的示例条文，流动性风险管理通常包含治理与策略、限额与监测、压力测试与应急预案三个层面…",
+    answer:
+      "### 结论\n\n根据检索到的示例条文，流动性风险管理通常包含治理与策略、限额与监测、压力测试与应急预案三个层面[S1][S2]。",
+    citations: history[0]?.citations ?? [],
     evidence_support: { score: 0.82, level: "strong" },
     citation_count: 2,
     created_at: "2026-10-26T09:15:00Z",
@@ -563,6 +566,8 @@ export function demoAddFavorite(qaId: string): Promise<FavoriteRecord> {
     qa_id: record.id,
     question: record.question,
     answer_excerpt: `${record.answer.slice(0, 60)}…`,
+    answer: record.answer,
+    citations: record.citations,
     evidence_support: {
       score: record.evidence_support.score,
       level: record.evidence_support.level,

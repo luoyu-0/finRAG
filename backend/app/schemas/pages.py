@@ -123,6 +123,10 @@ class FavoriteInfo(BaseModel):
     qa_id: str
     question: str
     answer_excerpt: str
+    # 收藏只存摘要，但页面要与问答页一致地渲染 Markdown 与行内角标，
+    # 因此按 qa_id 联表带回原回答正文与引用（契约 §9.4）。
+    answer: str
+    citations: list[CitationResponse]
     evidence_support: FavoriteSupport
     citation_count: int
     created_at: datetime

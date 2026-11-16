@@ -33,6 +33,7 @@ def record_view(record, favorite, filters):
 
 def favorite_view(favorite, record):
     return dict(id=favorite.id, qa_id=record.id, question=record.question, answer_excerpt=record.answer[:120],
+                answer=record.answer, citations=record.citations,
                 evidence_support={k: record.evidence_support[k] for k in ("score", "level")},
                 citation_count=len(record.citations), created_at=utc(favorite.created_at))
 
