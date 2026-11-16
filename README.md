@@ -1,6 +1,6 @@
 # 金融制度 RAG 知识问答系统
 
-本项目面向金融制度材料，已搭建 TXT/PDF 离线导入、混合检索和可溯源问答的基础链路；知识库管理、在线上传、历史查询和收藏等功能仍需后端接口配套。
+本项目面向金融制度材料，已搭建 TXT/PDF 离线导入、混合检索和可溯源问答的基础链路；知识库、在线上传、问答历史和收藏页面均已接入后端。
 
 当前仓库已有前端登录与问答界面、MySQL 用户与刷新会话、问答 HTTP 路由、TXT/PDF 离线索引导入、BGE 向量化、Milvus 向量检索、MySQL 中文关键词检索及 DeepSeek 生成 Provider。PDF 无文字层的页面可在离线索引导入时由 PaddleOCR 识别。首次问答需配置 API Key 并导入可检索文件；缺少 Key 时问答返回 `503`，不会显示虚构答案。RAG 在线流程使用 LangChain LCEL 编排，DeepSeek 通过官方 ChatDeepSeek 适配器异步调用；过滤、融合和引用规则由领域模块维护。
 
@@ -15,6 +15,8 @@
 - 通过 Docker Compose 统一部署 Web、API、MySQL 和 Milvus。
 
 课程目标要求覆盖至少 1000 条核心知识点，在线问答响应时间不超过 2 秒，人工校验准确率不低于 85%，核心模块单元测试覆盖率不低于 70%。这些指标将在获得代表性数据集后建立统一测量口径。
+
+当前真实问答采用 SSE 流式输出，2 秒指标按“请求发出至首段实际答案正文”测量，完整回答耗时另计；不把状态提示或 Markdown 标题算作答案首字。测试集继续使用非流式接口。接口与实测限制见 [流式问答](docs/api/流式问答.md) 和 [RAG 效果与首字延迟优化](docs/testing/RAG效果与首字延迟优化.md)。
 
 ## 技术方案
 
@@ -149,7 +151,7 @@ docker compose ps
 
 导入前按文件字节的 SHA-256 在同一知识库内去重：相同内容不论文件名是否相同都跳过，不再解析、OCR 或向量化；第一次入库的路径、文档 ID 和引用来源保留。不同知识库独立维护索引。文件内容变化时更新原路径索引；如果变成另一已入库文档的内容，则移除本路径过时的索引并复用已保留内容。分块 ID 仍包含文档和版本 ID，避免跨知识库或历史分块发生主键冲突。显式修改元数据、升级分块规则或恢复丢失的向量索引时，使用 `--rebuild` 重建保留路径；不同名称的重复副本即使指定该参数也会跳过。已有问答历史中的旧分块 ID 在重建后可能无法再定位。单个文件限 50 MB。若使用非默认知识库，在命令末尾加 `--knowledge-base-id <ID>`，问答页也应选相同知识库。
 
-当前代码中的线上导入分块策略按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；修改原文后须重新导入，只修改分块规则时须加 `--rebuild`，才会影响在线问答。基于本地原始制度文件核对的 50 组问答样本见 [问答基准集](data/samples/qa_50_from_raw.json)。这些来源内容入库后，可从后端运行评测并在 `data/processed/qa_evaluation.json`、`data/processed/qa_evaluation.md` 查看逐题回答、引用命中和汇总结果：
+当前代码中的线上导入分块策略按章、节、条和段落等边界优先切分，单块最多 500 字符，相邻长块重叠 50 字符；修改原文后须重新导入，只修改分块规则时须加 `--rebuild`，才会影响在线问答。开发评测集已扩充为 [100 题](data/samples/qa_100_from_raw.json)，覆盖 20 份已索引 TXT 制度；[原 50 题](data/samples/qa_50_from_raw.json)保留用于复核历史报告。运行评测后可在 `data/processed/qa_evaluation.json`、`data/processed/qa_evaluation.md` 查看逐题回答、引用命中和汇总结果：
 
 ```powershell
 $samplePath = (Resolve-Path data/samples).Path
@@ -177,7 +179,7 @@ docker compose run --rm --no-deps backend python -m app.workers.deduplicate_docu
 docker compose run --rm --no-deps backend python -m app.workers.import_documents --ocr
 ```
 
-导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；前端已编写上传与任务进度页面，但真实环境没有对应的后端接口。PDF 复杂版面处理尚未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
+导入失败会列出文件和原因。当前使用 MySQL 中文 ngram 关键词检索与 Milvus 向量检索融合；管理员可在文档导入页上传文件、查看任务进度并重试失败任务。PDF 复杂版面处理尚未实现。若数据库已有旧版 `document_chunks` 表且缺少 `ix_document_chunks_text_ngram` 索引，需先按 `infra/mysql/0001_document_fulltext.sql` 补建索引。
 
 停止容器但保留数据：
 

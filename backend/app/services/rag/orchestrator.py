@@ -16,6 +16,7 @@ from app.domain.rag import (
     EvidenceSupport,
     EvidenceSupportLevel,
     FusedHit,
+    GeneratorOutput,
     RagAnswer,
     RagQuery,
     RetrievalHit,
@@ -105,6 +106,24 @@ class RagService:
 
         return await self._chain.ainvoke(query)
 
+    async def stream_answer(self, query: RagQuery):
+        """流式与非流式共用检索、上下文和最终引用校验。"""
+        state = await self._prepare_context(await self._retrieve_query(query))
+        if not state.context.items:
+            yield self._no_evidence(state.warnings)
+            return
+        try:
+            async for part in self._generator.generate_stream(query, state.context):
+                if isinstance(part, GeneratorOutput):
+                    yield self._finalize_answer(state, part)
+                else:
+                    yield part
+        except (GenerationContractError, GenerationFailedError):
+            raise
+        except Exception as exc:
+            logger.warning("RAG 流式生成失败：%s", type(exc).__name__)
+            raise GenerationFailedError("回答生成失败") from exc
+
     async def _retrieve_query(self, query: RagQuery) -> _RetrievedQuery:
         results, warnings = await self._retrieve(query)
         return _RetrievedQuery(query, results, warnings)
@@ -135,6 +154,10 @@ class RagService:
             )
             raise GenerationFailedError("回答生成失败") from exc
 
+        return self._finalize_answer(state, generated)
+
+    def _finalize_answer(self, state: _PreparedQuery, generated: GeneratorOutput) -> RagAnswer:
+        context, warnings = state.context, list(state.warnings)
         answer = generated.answer.strip()
         if not answer:
             raise GenerationContractError("生成器返回了空回答")

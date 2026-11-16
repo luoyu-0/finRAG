@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Protocol, Sequence
+from collections.abc import AsyncIterator
 
 from app.domain.rag import ContextPackage, FusedHit, GeneratorOutput, RagQuery
 
@@ -24,4 +25,8 @@ class AnswerGenerator(Protocol):
     async def generate(self, query: RagQuery, context: ContextPackage) -> GeneratorOutput:
         """只基于给定上下文生成回答，并返回实际引用的标签。"""
 
+        ...
+
+    def generate_stream(self, query: RagQuery, context: ContextPackage) -> AsyncIterator[str | GeneratorOutput]:
+        """依次提供正文增量和唯一的最终结构化结果。"""
         ...

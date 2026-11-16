@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -49,7 +50,8 @@ class DeepSeekAnswerGenerator:
             max_tokens=1200,
             extra_body={"thinking": {"type": "disabled"}},
         ).bind(response_format={"type": "json_object"})
-        self._chain = prompt | llm | RunnableLambda(self._parse_response)
+        self._model_chain = prompt | llm
+        self._chain = self._model_chain | RunnableLambda(self._parse_response)
 
     @staticmethod
     def _parse_response(message: AIMessage) -> dict:
@@ -70,8 +72,59 @@ class DeepSeekAnswerGenerator:
             result = await self._chain.ainvoke({"question": query.question, "context": context.text})
         except LengthFinishReasonError as exc:
             raise ValueError("生成结果未完整结束") from exc
+        return self._output(result, context)
+
+    @staticmethod
+    def _output(result: dict, context: ContextPackage) -> GeneratorOutput:
         labels = {item.label for item in context.items}
         citations = result["citation_labels"]
         if any(not isinstance(label, str) or label not in labels for label in citations):
             raise ValueError("生成结果包含未知证据标签")
         return GeneratorOutput(answer=result["answer"], citation_labels=tuple(citations))
+
+    async def generate_stream(self, query: RagQuery, context: ContextPackage):
+        """边接收边解码 answer 字符串，最终仍执行完整 JSON 与引用校验。"""
+        raw = ""
+        emitted = ""
+        finish_reason = None
+        async for chunk in self._model_chain.astream({"question": query.question, "context": context.text}):
+            if isinstance(chunk.content, str):
+                raw += chunk.content
+            finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
+            prefix = _answer_prefix(raw)
+            if prefix and prefix.startswith(emitted):
+                delta = prefix[len(emitted):]
+                emitted = prefix
+                if delta:
+                    yield delta
+        result = self._parse_response(AIMessage(content=raw, response_metadata={"finish_reason": finish_reason}))
+        output = self._output(result, context)
+        if not output.answer.startswith(emitted):
+            raise ValueError("流式正文与完整结果不一致")
+        if len(output.answer) > len(emitted):
+            yield output.answer[len(emitted):]
+        yield output
+
+
+def _answer_prefix(raw: str) -> str:
+    """只提取首字段 answer 的完整 JSON 字符；残缺转义留到下一批。"""
+    match = re.match(r'^\s*\{\s*"answer"\s*:\s*"', raw)
+    if not match:
+        return ""
+    value = raw[match.end():]
+    end = 0
+    while end < len(value):
+        if value[end] == '"':
+            break
+        if value[end] == "\\":
+            if end + 1 >= len(value):
+                break
+            size = 6 if value[end + 1] == "u" else 2
+            if end + size > len(value):
+                break
+            end += size
+        else:
+            end += 1
+    text = json.loads('"' + value[:end] + '"')
+    # Unicode 高代理项可能还在等待下一批低代理项。
+    return text[:-1] if text and 0xD800 <= ord(text[-1]) <= 0xDBFF else text

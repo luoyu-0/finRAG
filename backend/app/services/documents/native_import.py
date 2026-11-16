@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import tempfile
+from xml.etree import ElementTree
+from zipfile import ZipFile
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,7 @@ from app.services.ocr.ports import OCRProvider
 
 
 STRUCTURE_RE = re.compile(r"第[零〇一二三四五六七八九十百千万0-9]+[章节条]")
+HEADING_RE = re.compile(r"第[零〇一二三四五六七八九十百千万0-9]+[章节][^\n。！？；;：:《》“”]{0,80}\Z")
 CHUNK_SIZE = 500
 OVERLAP = 50
 MIN_BREAK = CHUNK_SIZE // 2
@@ -38,9 +41,11 @@ def _structural_sections(text: str) -> list[tuple[str, str | None]]:
     markers = []
     for match in STRUCTURE_RE.finditer(text):
         previous = match.start() - 1
-        while previous >= 0 and text[previous] in " \t":
+        while previous >= 0 and text[previous].isspace() and text[previous] != "\n":
             previous -= 1
-        if previous < 0 or text[previous] in "\n。；;":
+        # 网页导出的章标题可能与首条正文粘连，标题内没有句末标点。
+        after_heading = bool(markers and HEADING_RE.fullmatch(text[markers[-1].start():match.start()].strip()))
+        if previous < 0 or text[previous] in "\n。；;" or after_heading:
             markers.append(match)
     if not markers:
         return [(text, None)]
@@ -57,6 +62,17 @@ def _structural_sections(text: str) -> list[tuple[str, str | None]]:
         end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
         sections.append((text[match.start():end], article))
     return sections
+
+
+def infer_single_article(text: str) -> str | None:
+    """仅为章标题后单条正文推断条号；多条混合或前置正文不作猜测。"""
+    sections = _structural_sections(text.strip())
+    articles = {article for _, article in sections if article}
+    if len(articles) != 1:
+        return None
+    if any(not article and not HEADING_RE.fullmatch(section.strip()) for section, article in sections):
+        return None
+    return next(iter(articles))
 
 
 def _chunk_sections(section: str) -> list[str]:
@@ -122,7 +138,23 @@ def parse_document(path: Path, *, ocr: OCRProvider | None = None) -> ParsedDocum
             if rendered_pdf is not None:
                 rendered_pdf.close()
         page_count = len(pages)
-    elif suffix == ".txt":
+    elif suffix == ".docx":
+        # 只读 Word 主文档的段落和表格文字，限制解压大小。
+        with ZipFile(path) as archive:
+            member = archive.getinfo("word/document.xml")
+            if member.file_size > 50 * 1024 * 1024:
+                raise ValueError("DOCX 解压后正文超过 50 MB")
+            root = ElementTree.fromstring(archive.read(member))
+        ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        content = "\n".join("".join(node.text or "" for node in para.iter(ns + "t"))
+                            for para in root.iter(ns + "p"))
+        pages = [(None, content)]
+        page_count = 0
+    elif suffix in {".png", ".jpg", ".jpeg"} and ocr is not None:
+        pages = [(1, ocr.recognize(path))]
+        page_count = 1
+        warnings.append("第 1 页经 OCR 识别，需人工复核")
+    elif suffix in {".txt", ".md"}:
         data = path.read_bytes()
         try:
             content = data.decode("utf-8-sig")

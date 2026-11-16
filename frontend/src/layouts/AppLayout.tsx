@@ -68,7 +68,7 @@ export function AppLayout() {
         <div className="app-sidebar__footer">
           条文溯源 · 证据支持度
           <br />
-          响应时间目标 ≤ 2 秒
+          首字响应目标 ≤ 2 秒
         </div>
       </aside>
 

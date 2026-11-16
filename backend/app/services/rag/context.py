@@ -27,6 +27,7 @@ class ContextAssembler:
         truncated = len(hits) > self._max_chunks
 
         for hit in hits[: self._max_chunks]:
+            text_truncated = False
             label = f"S{len(items) + 1}"
             header = self._render_header(label, hit)
             separator_size = 2 if rendered_blocks else 0
@@ -42,11 +43,12 @@ class ContextAssembler:
                     break
                 rendered = f"{header}\n内容：{hit.text[:available_text]}…"
                 truncated = True
+                text_truncated = True
 
             items.append(ContextItem(label=label, hit=hit, rendered_text=rendered))
             rendered_blocks.append(rendered)
             used_chars += len(rendered) + separator_size
-            if truncated:
+            if text_truncated:
                 break
 
         return ContextPackage(

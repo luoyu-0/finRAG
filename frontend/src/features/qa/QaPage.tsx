@@ -4,7 +4,7 @@
  * 对应 docs/api/系统接口.md §6。页面覆盖三种状态：空闲、检索中、失败（可重试），
  * 结果区域展示回答正文、证据支持度、条文来源与追踪标识。
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { ApiError } from "../../api/errors";
@@ -19,7 +19,7 @@ import { PageState } from "../../components/PageState";
 import type { QuestionResponse } from "../../types/qa";
 
 const MAX_LENGTH = 500;
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 
 // 示例问题都取自当前知识库中可直接作答的条文，避免点了示例却得到「依据不足」。
 // 候选题在真实接口上每题问两遍，只保留两次都能答的（支付许可证续展、存款保险投保范围
@@ -84,6 +84,9 @@ export function QaPage() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<QuestionResponse | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const [partialAnswer, setPartialAnswer] = useState("");
+  const activeRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => activeRequest.current?.abort(), []);
 
   const overLimit = question.length > MAX_LENGTH;
   const busy = phase === "loading";
@@ -97,14 +100,22 @@ export function QaPage() {
     setPhase("loading");
     setError(null);
     setResult(null);
+    setPartialAnswer("");
 
     const controller = new AbortController();
+    activeRequest.current = controller;
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await askQuestion(apiClient, { question: trimmed }, controller.signal);
+      const response = await askQuestion(
+        apiClient,
+        { question: trimmed },
+        controller.signal,
+        (delta) => setPartialAnswer((previous) => previous + delta),
+      );
       setResult(response);
       setPhase("success");
     } catch (caught) {
+      setPartialAnswer("");
       setError(
         caught instanceof ApiError
           ? caught
@@ -113,6 +124,7 @@ export function QaPage() {
       setPhase("error");
     } finally {
       clearTimeout(timeout);
+      if (activeRequest.current === controller) activeRequest.current = null;
     }
   }
 
@@ -158,7 +170,7 @@ export function QaPage() {
                   className="btn"
                   disabled={busy || !question.trim() || overLimit}
                 >
-                  {busy ? "检索中…" : "提问"}
+                  {busy ? (partialAnswer ? "生成中…" : "检索中…") : "提问"}
                 </button>
               </div>
             </form>
@@ -197,12 +209,19 @@ export function QaPage() {
             />
           ) : null}
 
-          {phase === "loading" ? (
+          {phase === "loading" && !partialAnswer ? (
             <PageState
               kind="loading"
               title="正在检索制度条文…"
-              description="检索、融合与生成的目标耗时不超过 2 秒。"
+              description="正在准备回答，正文将逐步显示。"
             />
+          ) : null}
+
+          {phase === "loading" && partialAnswer ? (
+            <div className="stack" aria-busy="true">
+              <span className="faint">生成中，引用将在完成后校验。</span>
+              <MarkdownText className="qa__answer-body" text={partialAnswer} />
+            </div>
           ) : null}
 
           {phase === "error" && error ? (

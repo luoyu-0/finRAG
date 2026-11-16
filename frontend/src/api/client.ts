@@ -81,11 +81,26 @@ export class ApiClient {
     path: string,
     body?: unknown,
     options: RequestOptions = {},
-    allowRefresh = true,
   ): Promise<T> {
+    return this.parseSuccessBody<T>(await this.requestResponse(method, path, body, options));
+  }
+
+  /** 流式请求共用鉴权、401 刷新和错误处理，成功后由调用方读取流。 */
+  postStream(path: string, body: unknown, options: RequestOptions = {}): Promise<Response> {
+    return this.requestResponse("POST", path, body, options, true, "text/event-stream");
+  }
+
+  private async requestResponse(
+    method: HttpMethod,
+    path: string,
+    body?: unknown,
+    options: RequestOptions = {},
+    allowRefresh = true,
+    accept = "application/json",
+  ): Promise<Response> {
     const url = `${this.baseUrl}${path}${buildQueryString(options.query)}`;
 
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = { Accept: accept };
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
@@ -117,7 +132,7 @@ export class ApiClient {
         if (allowRefresh && token && this.refreshAccessToken && !path.startsWith("/auth/")) {
           try {
             if (await this.refreshAccessToken()) {
-              return this.request<T>(method, path, body, options, false);
+              return this.requestResponse(method, path, body, options, false, accept);
             }
           } catch {
             // 刷新失败后按原 401 统一清理会话。
@@ -128,7 +143,7 @@ export class ApiClient {
       throw error;
     }
 
-    return await this.parseSuccessBody<T>(response);
+    return response;
   }
 
   get<T>(path: string, options?: RequestOptions): Promise<T> {
