@@ -67,4 +67,21 @@ describe("知识库详情页", () => {
     expect(screen.getAllByText("有效").length).toBeGreaterThan(0);
     expect(screen.getByText("已失效")).toBeInTheDocument();
   });
+
+  it("排序与筛选：按格式筛出空结果后可以清空", async () => {
+    const user = userEvent.setup();
+    renderRoute(<KnowledgeDetailPage />, "/knowledge/:knowledgeBaseId", "/knowledge/kb_001");
+
+    await screen.findByText("商业银行流动性风险管理办法（示例）");
+    // 四个排序选项都在下拉里
+    expect(screen.getByLabelText("排序方式")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "按分类" })).toBeInTheDocument();
+
+    // kb_001 的演示文档都是 PDF，筛 TXT 会得到空结果并给出清空入口
+    await user.selectOptions(screen.getByLabelText("按格式筛选"), "txt");
+    expect(await screen.findByText("没有匹配的文档")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "清空筛选" }));
+    expect(await screen.findByText("商业银行流动性风险管理办法（示例）")).toBeInTheDocument();
+  });
 });

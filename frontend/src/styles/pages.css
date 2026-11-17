@@ -1,5 +1,25 @@
 /* 页面级组件样式：表格、分页、统计卡、导入任务、上传区、记录卡。 */
 
+/* 卡片内的工具栏（排序与筛选） */
+.card__toolbar {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.toolbar__select {
+  width: auto;
+  min-width: 132px;
+}
+
+/* 用 fieldset 统一禁用整组控件，但不影响工具栏的 flex 排版 */
+.toolbar__group {
+  display: contents;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
 /* ══ 页头 ══════════════════════════════════════════════════ */
 
 .page-head {

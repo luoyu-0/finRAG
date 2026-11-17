@@ -106,6 +106,21 @@ export interface DocumentContent {
   anchor: ContentAnchor | null;
 }
 
+/** 文档列表排序字段，对应 §8.2 的 `sort` 参数。 */
+export type DocumentSort = "updated_at" | "title" | "category" | "chunk_count";
+
+/** 排序方向，对应 §8.2 的 `order` 参数。 */
+export type DocumentSortOrder = "asc" | "desc";
+
+/** 文档正文格式，对应 §8.2 的 `format` 参数。 */
+export type DocumentFormat = "txt" | "pdf";
+
+/** 分类聚合，对应 §7.6，用于「分类」筛选下拉。 */
+export interface CategoryCount {
+  category: string;
+  document_count: number;
+}
+
 /** 导入任务状态机，对应 §8.6。 */
 export type IngestionState = "queued" | "processing" | "succeeded" | "failed" | "cancelled";
 

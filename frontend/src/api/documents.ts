@@ -3,8 +3,12 @@ import type { ApiClient } from "./client";
 import { MOCK_ENABLED } from "./mode";
 import type { Page, PageQuery } from "../types/api";
 import type {
+  CategoryCount,
   DocumentContent,
   DocumentDetail,
+  DocumentFormat,
+  DocumentSort,
+  DocumentSortOrder,
   DocumentSummary,
   IngestionTask,
   PolicyStatus,
@@ -15,6 +19,14 @@ export interface ListDocumentsQuery extends PageQuery {
   knowledge_base_id?: string;
   policy_status?: PolicyStatus;
   q?: string;
+  /** §8.2 排序字段，缺省按更新时间倒序。 */
+  sort?: DocumentSort;
+  order?: DocumentSortOrder;
+  /** §8.2 按分类筛选；`未分类` 表示文件名没有 `(分类)_` 前缀。 */
+  category?: string;
+  format?: DocumentFormat;
+  /** §8.2 只返回有解析告警的文档。 */
+  has_warning?: boolean;
 }
 
 export interface ListTasksQuery extends PageQuery {
@@ -43,8 +55,28 @@ export async function listDocuments(
       knowledge_base_id: query.knowledge_base_id,
       policy_status: query.policy_status,
       q: query.q,
+      sort: query.sort,
+      order: query.order,
+      category: query.category,
+      format: query.format,
+      has_warning: query.has_warning,
     },
   });
+}
+
+/** 分类聚合，供文档列表的「分类」筛选下拉使用（契约 §7.6）。 */
+export async function listDocumentCategories(
+  client: ApiClient,
+  knowledgeBaseId: string,
+): Promise<CategoryCount[]> {
+  if (MOCK_ENABLED) {
+    const { demoListDocumentCategories } = await import("./demo");
+    return demoListDocumentCategories(knowledgeBaseId);
+  }
+  const page = await client.get<Page<CategoryCount>>(
+    `/knowledge-bases/${knowledgeBaseId}/categories`,
+  );
+  return page.items;
 }
 
 export async function getDocument(client: ApiClient, documentId: string): Promise<DocumentDetail> {
