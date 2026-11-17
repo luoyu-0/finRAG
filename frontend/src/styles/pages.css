@@ -618,3 +618,67 @@ ol.md__list {
     max-width: min(280px, calc(100vw - 48px));
   }
 }
+
+/* 文档正文页：点角标后定位到被引条文 */
+.doc-reader__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--color-text);
+}
+
+.doc-reader__hit {
+  background: var(--color-warning-soft, #fdf3d8);
+  border-bottom: 2px solid var(--color-warning, #c99a2e);
+  padding: 1px 2px;
+  border-radius: 2px;
+  scroll-margin: 120px;
+}
+
+.doc-reader__excerpt {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-surface-muted, #f7f8fa);
+  border-left: 3px solid var(--color-warning, #c99a2e);
+  border-radius: var(--radius-sm, 4px);
+  line-height: 1.8;
+}
+
+.doc-reader__blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.doc-block {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface, #fff);
+  scroll-margin: 120px;
+}
+
+.doc-block--hit {
+  border-color: var(--color-warning, #c99a2e);
+  background: var(--color-warning-soft, #fdf3d8);
+}
+
+.doc-block__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.doc-block__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+  font-size: 14px;
+}

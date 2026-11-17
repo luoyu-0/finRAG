@@ -77,16 +77,16 @@ export function supportsHover(): boolean {
   return window.matchMedia("(hover: hover)").matches;
 }
 
-/** 点击角标的跳转目标：知识库详情页，并用 `doc` 参数定位到该文档。 */
+/** 点击角标的跳转目标：文档正文页，并用 `chunk` 参数定位到被引条文。 */
 function citationTarget(citation: Citation | undefined): string {
   if (citation === undefined) {
     return "/knowledge";
   }
-  const scope =
-    citation.knowledge_base_id === undefined
-      ? "/knowledge"
-      : `/knowledge/${encodeURIComponent(citation.knowledge_base_id)}`;
-  return `${scope}?doc=${encodeURIComponent(citation.document_id)}`;
+  const params = new URLSearchParams({ chunk: citation.chunk_id });
+  if (citation.knowledge_base_id !== undefined) {
+    params.set("kb", citation.knowledge_base_id);
+  }
+  return `/documents/${encodeURIComponent(citation.document_id)}?${params.toString()}`;
 }
 
 interface AnswerTextProps {

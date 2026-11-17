@@ -3,6 +3,7 @@ import type { ApiClient } from "./client";
 import { MOCK_ENABLED } from "./mode";
 import type { Page, PageQuery } from "../types/api";
 import type {
+  DocumentContent,
   DocumentDetail,
   DocumentSummary,
   IngestionTask,
@@ -48,6 +49,21 @@ export async function listDocuments(
 
 export async function getDocument(client: ApiClient, documentId: string): Promise<DocumentDetail> {
   return client.get<DocumentDetail>(`/documents/${documentId}`);
+}
+
+/** 读取文档正文；传 chunkId 时返回被引分块在正文中的位置（契约 §8.3.1）。 */
+export async function getDocumentContent(
+  client: ApiClient,
+  documentId: string,
+  chunkId?: string,
+): Promise<DocumentContent> {
+  if (MOCK_ENABLED) {
+    const { demoGetDocumentContent } = await import("./demo");
+    return demoGetDocumentContent(documentId, chunkId);
+  }
+  return client.get<DocumentContent>(`/documents/${documentId}/content`, {
+    query: { chunk_id: chunkId },
+  });
 }
 
 export async function deleteDocument(client: ApiClient, documentId: string): Promise<void> {

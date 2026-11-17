@@ -70,6 +70,42 @@ export interface DocumentDetail extends DocumentSummary {
   versions: DocumentVersion[];
 }
 
+/** 正文来源：TXT 可渲染全文，PDF 只能按页重组，原文缺失时为 unavailable（§8.3.1）。 */
+export type ContentSource = "txt" | "pdf" | "unavailable";
+
+/** PDF 等无法直接取全文时按页重组的正文片段（§8.3.1）。 */
+export interface ContentBlock {
+  chunk_id: string;
+  article_number: string | null;
+  page_number: number | null;
+  text: string;
+}
+
+/** 被引分块在正文中的位置；`start`/`end` 为原文中的字符区间（§8.3.1）。 */
+export interface ContentAnchor {
+  chunk_id: string;
+  article_number: string | null;
+  page_number: number | null;
+  excerpt: string;
+  start: number | null;
+  end: number | null;
+  located: boolean;
+}
+
+/** 文档正文与引用定位，对应 §8.3.1。 */
+export interface DocumentContent {
+  id: string;
+  knowledge_base_id: string;
+  title: string;
+  file_name: string;
+  page_count: number;
+  policy_status: PolicyStatus;
+  source: ContentSource;
+  text: string | null;
+  blocks: ContentBlock[];
+  anchor: ContentAnchor | null;
+}
+
 /** 导入任务状态机，对应 §8.6。 */
 export type IngestionState = "queued" | "processing" | "succeeded" | "failed" | "cancelled";
 

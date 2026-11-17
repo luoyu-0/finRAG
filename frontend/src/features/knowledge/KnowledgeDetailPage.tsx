@@ -6,7 +6,7 @@
 import { useCallback } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
-import { listDocuments } from "../../api/documents";
+import { getDocument, listDocuments } from "../../api/documents";
 import { getKnowledgeBase, getKnowledgeBaseStats } from "../../api/knowledge";
 import { apiClient } from "../../api/session";
 import { Badge } from "../../components/Badge";
@@ -15,6 +15,7 @@ import { PageState } from "../../components/PageState";
 import { useLoader } from "../../hooks/useLoader";
 import type { Page } from "../../types/api";
 import type {
+  DocumentDetail,
   DocumentSummary,
   KnowledgeBase,
   KnowledgeBaseStats,
@@ -37,6 +38,8 @@ interface DetailBundle {
   knowledgeBase: KnowledgeBase;
   stats: KnowledgeBaseStats;
   documents: Page<DocumentSummary>;
+  /** 从问答角标跳转时定位到的来源文档；不在文档列表第一页时也能单独取到。 */
+  focused: DocumentDetail | null;
 }
 
 function formatDate(value: string | null): string {
@@ -60,13 +63,15 @@ export function KnowledgeDetailPage() {
   const focusedDocId = searchParams.get("doc");
 
   const fetcher = useCallback(async (): Promise<DetailBundle> => {
-    const [knowledgeBase, stats, documents] = await Promise.all([
+    const [knowledgeBase, stats, documents, focused] = await Promise.all([
       getKnowledgeBase(apiClient, knowledgeBaseId),
       getKnowledgeBaseStats(apiClient, knowledgeBaseId),
       listDocuments(apiClient, { knowledge_base_id: knowledgeBaseId, page_size: 50 }),
+      // 被引文档可能不在第一页，单独取一次，保证「已定位到来源文档」始终有效。
+      focusedDocId === null ? Promise.resolve(null) : getDocument(apiClient, focusedDocId),
     ]);
-    return { knowledgeBase, stats, documents };
-  }, [knowledgeBaseId]);
+    return { knowledgeBase, stats, documents, focused };
+  }, [knowledgeBaseId, focusedDocId]);
 
   const { data, error, loading, reload } = useLoader<DetailBundle>(fetcher);
 
@@ -99,9 +104,7 @@ export function KnowledgeDetailPage() {
     return <PageState title="知识库不存在" description="该知识库可能已被删除。" />;
   }
 
-  const { knowledgeBase, stats, documents } = data;
-  const focusedDocument =
-    focusedDocId === null ? null : (documents.items.find((doc) => doc.id === focusedDocId) ?? null);
+  const { knowledgeBase, stats, documents, focused: focusedDocument } = data;
 
   return (
     <div className="stack stack--section">
@@ -120,6 +123,26 @@ export function KnowledgeDetailPage() {
           </Link>
         </div>
       </div>
+
+      {focusedDocument === null ? null : (
+        <section className="card">
+          <div className="card__header">
+            <h3 className="card__title">已定位到来源文档</h3>
+            <Link
+              className="btn btn--sm"
+              to={`/documents/${encodeURIComponent(focusedDocument.id)}`}
+            >
+              阅读正文
+            </Link>
+          </div>
+          <div className="card__body">
+            <p className="table__title">{focusedDocument.title}</p>
+            <p className="faint">
+              {focusedDocument.file_name} · {formatDate(focusedDocument.updated_at)}
+            </p>
+          </div>
+        </section>
+      )}
 
       <section className="card">
         <div className="card__header">
@@ -165,7 +188,7 @@ export function KnowledgeDetailPage() {
             {focusedDocument === null
               ? `共 ${String(documents.total)} 份`
               : `已定位到来源文档：${focusedDocument.title}`}
-          </span>
+          </span>{" "}
         </div>
 
         <div className="card__body card__body--flush">

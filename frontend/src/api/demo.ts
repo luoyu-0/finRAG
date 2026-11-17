@@ -12,12 +12,14 @@
 import type { Page, PageQuery } from "../types/api";
 import type { FavoriteRecord, QaRecord } from "../types/history";
 import type {
+  DocumentContent,
   DocumentSummary,
   IngestionTask,
   KnowledgeBase,
   KnowledgeBaseStats,
 } from "../types/knowledge";
 import { CORPUS_DOCUMENTS, CORPUS_KNOWLEDGE_BASE } from "./demo-corpus";
+import { DEMO_CITATIONS } from "./mock";
 
 const LATENCY_MS = 320;
 
@@ -448,6 +450,63 @@ export function demoListDocuments(
 export function demoDeleteDocument(id: string): Promise<void> {
   documents = documents.filter((item) => item.id !== id);
   return simulate(undefined);
+}
+
+/** 演示用的正文：把示例问答的引用拼成一段原文，便于验证「角标 → 原文定位」。 */
+export function demoGetDocumentContent(id: string, chunkId?: string): Promise<DocumentContent> {
+  const document = documents.find((item) => item.id === id);
+  if (!document) {
+    return Promise.reject(new Error("DOCUMENT_NOT_FOUND"));
+  }
+  const citations = [
+    // 问答页走 mock.ts 的演示回答，优先用它，保证角标里的 chunk_id 能对上。
+    ...DEMO_CITATIONS,
+    ...history.flatMap((item) => item.citations),
+  ]
+    .filter((item) => item.document_id === id)
+    // 同一份演示条文可能同时来自历史与演示回答，按条号+摘录去重。
+    .filter(
+      (item, index, list) =>
+        list.findIndex(
+          (other) => other.article_number === item.article_number && other.excerpt === item.excerpt,
+        ) === index,
+    )
+    .map((item) => ({ ...item, excerpt: item.excerpt ?? "" }));
+  const anchorCitation =
+    chunkId === undefined ? undefined : citations.find((item) => item.chunk_id === chunkId);
+  const text = [
+    `${document.title}`,
+    "",
+    "（以下为演示数据：仅用于验证「点击角标 → 回到原文对应条文」的界面与定位逻辑。）",
+    "",
+    ...citations.map((item) => `${item.article_number ?? "相关条文"}　${item.excerpt}`),
+  ].join("\n");
+  const start = anchorCitation === undefined ? -1 : text.indexOf(anchorCitation.excerpt);
+  const located = start >= 0;
+  const content: DocumentContent = {
+    id: document.id,
+    knowledge_base_id: document.knowledge_base_id,
+    title: document.title,
+    file_name: document.file_name,
+    page_count: document.page_count,
+    policy_status: document.current_version?.policy_status ?? "unknown",
+    source: "txt",
+    text,
+    blocks: [],
+    anchor:
+      anchorCitation === undefined
+        ? null
+        : {
+            chunk_id: anchorCitation.chunk_id,
+            article_number: anchorCitation.article_number,
+            page_number: anchorCitation.page_number,
+            excerpt: anchorCitation.excerpt,
+            start: located ? start : null,
+            end: located ? start + anchorCitation.excerpt.length : null,
+            located,
+          },
+  };
+  return simulate(content);
 }
 
 export function demoUploadDocument(payload: {

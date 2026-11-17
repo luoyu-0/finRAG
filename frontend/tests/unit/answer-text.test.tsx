@@ -44,6 +44,7 @@ function renderText(text: string, citations: Citation[] = CITATIONS) {
         <Route path="/" element={<AnswerText text={text} citations={citations} />} />
         <Route path="/knowledge" element={<p>知识库列表页</p>} />
         <Route path="/knowledge/:knowledgeBaseId" element={<p>知识库详情页</p>} />
+        <Route path="/documents/:documentId" element={<p>文档正文页</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -138,13 +139,13 @@ describe("AnswerText", () => {
     });
   });
 
-  it("点击角标跳转到该引用所属的知识库详情页", async () => {
+  it("点击角标跳转到被引文档的正文页", async () => {
     const user = userEvent.setup();
     renderText("甲[S1]乙");
 
     await user.click(screen.getByRole("button", { name: /第 1 条条文来源/ }));
 
-    expect(await screen.findByText("知识库详情页")).toBeInTheDocument();
+    expect(await screen.findByText("文档正文页")).toBeInTheDocument();
   });
 
   it("引用缺少知识库标识时点击展开来源卡片，不跳转到空页面", async () => {
@@ -233,15 +234,15 @@ describe("触屏交互", () => {
     });
   });
 
-  it("卡片内的「在知识库中查看」完成跳转", async () => {
+  it("卡片内的「在原文中定位」完成跳转", async () => {
     stubHoverCapability(false);
     const user = userEvent.setup();
     renderText("甲[S1]乙");
 
     await user.click(screen.getByRole("button", { name: /第 1 条条文来源/ }));
-    await user.click(await screen.findByRole("button", { name: "在知识库中查看" }));
+    await user.click(await screen.findByRole("button", { name: "在原文中定位" }));
 
-    expect(await screen.findByText("知识库详情页")).toBeInTheDocument();
+    expect(await screen.findByText("文档正文页")).toBeInTheDocument();
   });
 
   it("桌面端卡片不出现跳转按钮", async () => {
@@ -251,7 +252,7 @@ describe("触屏交互", () => {
     await user.hover(screen.getByRole("button", { name: /第 1 条条文来源/ }));
 
     expect(await screen.findByText("制度甲（示例）")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "在知识库中查看" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "在原文中定位" })).not.toBeInTheDocument();
   });
 });
 

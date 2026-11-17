@@ -7,6 +7,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { LoginPage } from "../features/auth/LoginPage";
+import { DocumentContentPage } from "../features/documents/DocumentContentPage";
 import { ImportPage } from "../features/documents/ImportPage";
 import { FavoritesPage } from "../features/favorites/FavoritesPage";
 import { HistoryPage } from "../features/history/HistoryPage";
@@ -33,6 +34,7 @@ export function AppRoutes() {
         <Route path="qa" element={<QaPage />} />
         <Route path="knowledge" element={<KnowledgePage />} />
         <Route path="knowledge/:knowledgeBaseId" element={<KnowledgeDetailPage />} />
+        <Route path="documents/:documentId" element={<DocumentContentPage />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="history" element={<HistoryPage />} />
         <Route path="favorites" element={<FavoritesPage />} />
