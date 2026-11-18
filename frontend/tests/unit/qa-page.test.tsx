@@ -61,7 +61,7 @@ describe("制度问答页", () => {
     expect(screen.getByText(/商业银行应当建立与本行规模/)).toBeInTheDocument();
   });
 
-  it("点击角标跳转到知识库并定位该文档", async () => {
+  it("点击角标跳转到文档正文并高亮被引条文", async () => {
     const user = await loginAndOpenQa();
 
     await user.type(screen.getByLabelText("问题"), "商业银行应如何管理流动性风险？");
@@ -70,12 +70,16 @@ describe("制度问答页", () => {
 
     await user.click(screen.getAllByRole("button", { name: /第 \d 条条文来源/ })[0]);
 
-    // 跳到该引用所属知识库的详情页，并定位、高亮来源文档
-    expect(await screen.findByRole("heading", { name: "金融监管制度库" })).toBeInTheDocument();
-    expect(await screen.findByText("导入健康度")).toBeInTheDocument();
+    // 跳到被引文档的正文页，并高亮命中的条文片段
     expect(
-      await screen.findByText(/已定位到来源文档：商业银行流动性风险管理办法/),
+      await screen.findByRole("heading", { name: "商业银行流动性风险管理办法（示例）" }),
     ).toBeInTheDocument();
+    expect(await screen.findByText("制度原文")).toBeInTheDocument();
+    const hit = document.querySelector("mark.doc-reader__hit");
+    expect(hit).not.toBeNull();
+    expect(hit?.textContent).toContain("商业银行应当建立与本行规模");
+    // 顶部提示命中位置（条号与页码）
+    expect(screen.getAllByText(/第二十条/).length).toBeGreaterThan(0);
   });
 
   it("未检索到证据时给出无依据回答且不展示引用", async () => {

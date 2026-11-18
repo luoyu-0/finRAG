@@ -84,7 +84,7 @@ export function mockCurrentUser(token: string | null): User {
   return toUser(role === "admin" ? "admin" : "user", role);
 }
 
-const DEMO_CITATIONS: Citation[] = [
+export const DEMO_CITATIONS: Citation[] = [
   {
     label: "S1",
     knowledge_base_id: "kb_001",

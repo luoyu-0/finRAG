@@ -70,6 +70,44 @@ class DocumentDetail(Document):
     versions: list[VersionDetail]
 
 
+class ContentBlock(BaseModel):
+    """按页重组的正文片段，供 PDF 等无法直接取全文的文档定位引用。"""
+
+    chunk_id: str
+    article_number: str | None
+    page_number: int | None
+    text: str
+
+
+class ContentAnchor(BaseModel):
+    """被引分块在文档正文中的位置。
+
+    TXT 直接读原文件返回 `text`，`start`/`end` 是命中片段在原文中的字符区间；
+    PDF 不能当文本渲染，改用 `blocks` 重组，此时只标记命中分块、不给字符区间。
+    """
+
+    chunk_id: str
+    article_number: str | None
+    page_number: int | None
+    excerpt: str
+    start: int | None
+    end: int | None
+    located: bool
+
+
+class DocumentContent(BaseModel):
+    id: str
+    knowledge_base_id: str
+    title: str
+    file_name: str
+    page_count: int
+    policy_status: str
+    source: Literal["txt", "pdf", "unavailable"]
+    text: str | None
+    blocks: list[ContentBlock]
+    anchor: ContentAnchor | None
+
+
 class TaskError(BaseModel):
     error_code: str
     message: str

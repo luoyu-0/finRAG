@@ -12,12 +12,18 @@
 import type { Page, PageQuery } from "../types/api";
 import type { FavoriteRecord, QaRecord } from "../types/history";
 import type {
+  CategoryCount,
+  DocumentContent,
+  DocumentFormat,
+  DocumentSort,
+  DocumentSortOrder,
   DocumentSummary,
   IngestionTask,
   KnowledgeBase,
   KnowledgeBaseStats,
 } from "../types/knowledge";
 import { CORPUS_DOCUMENTS, CORPUS_KNOWLEDGE_BASE } from "./demo-corpus";
+import { DEMO_CITATIONS } from "./mock";
 
 const LATENCY_MS = 320;
 
@@ -429,8 +435,24 @@ export function demoGetKnowledgeBaseStats(id: string): Promise<KnowledgeBaseStat
 
 /* ── 文档 ───────────────────────────────────────────────── */
 
+/** 从文件名解析分类，与后端 §8.2 的规则一致：只认开头的 `(分类)_`。 */
+export function demoDocumentCategory(fileName: string): string {
+  const base = fileName.split("/").pop() ?? fileName;
+  const match = /^[（(]([^）)]+)[）)]_/.exec(base);
+  return match ? match[1] : "未分类";
+}
+
 export function demoListDocuments(
-  query: PageQuery & { knowledge_base_id?: string; policy_status?: string; q?: string },
+  query: PageQuery & {
+    knowledge_base_id?: string;
+    policy_status?: string;
+    q?: string;
+    sort?: DocumentSort;
+    order?: DocumentSortOrder;
+    category?: string;
+    format?: DocumentFormat;
+    has_warning?: boolean;
+  },
 ): Promise<Page<DocumentSummary>> {
   let filtered = documents;
   if (query.knowledge_base_id) {
@@ -441,16 +463,127 @@ export function demoListDocuments(
       (item) => item.current_version?.policy_status === query.policy_status,
     );
   }
+  if (query.category) {
+    filtered = filtered.filter((item) => demoDocumentCategory(item.file_name) === query.category);
+  }
+  if (query.format) {
+    filtered = filtered.filter((item) => item.file_name.toLowerCase().endsWith(`.${query.format}`));
+  }
+  if (query.has_warning) {
+    // 演示数据没有解析告警，这里按 0 份处理，保持与后端语义一致。
+    filtered = [];
+  }
   if (query.q?.trim()) {
     const keyword = query.q.trim().toLowerCase();
     filtered = filtered.filter((item) => item.title.toLowerCase().includes(keyword));
   }
-  return simulate(paginate(filtered, query));
+
+  const sortKey = query.sort ?? "updated_at";
+  const direction = query.order === "asc" ? 1 : -1;
+  const value = (item: DocumentSummary): string | number => {
+    switch (sortKey) {
+      case "title":
+        return item.title;
+      case "category":
+        return demoDocumentCategory(item.file_name);
+      case "chunk_count":
+        // 演示数据没有真实分块数，用页数折算，口径与演示统计页保持一致。
+        return item.page_count * 6;
+      default:
+        return item.updated_at;
+    }
+  };
+  // 项目 tsconfig 的 lib 不含 ES2023，这里用副本排序而不用 toSorted。
+  // oxlint-disable-next-line unicorn/no-array-sort
+  const sorted = filtered.slice().sort((left, right) => {
+    const a = value(left);
+    const b = value(right);
+    if (a === b) {
+      return 0;
+    }
+    return (a < b ? -1 : 1) * direction;
+  });
+
+  return simulate(paginate(sorted, query));
+}
+
+/** 分类聚合，供「分类」筛选下拉使用（契约 §7.6）。 */
+export function demoListDocumentCategories(knowledgeBaseId: string): Promise<CategoryCount[]> {
+  const counts = new Map<string, number>();
+  for (const item of documents) {
+    if (item.knowledge_base_id !== knowledgeBaseId) {
+      continue;
+    }
+    const category = demoDocumentCategory(item.file_name);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  const items = [...counts.entries()]
+    .map(([category, document_count]) => ({ category, document_count }))
+    // oxlint-disable-next-line unicorn/no-array-sort
+    .sort((a, b) => b.document_count - a.document_count || a.category.localeCompare(b.category));
+  return simulate(items);
 }
 
 export function demoDeleteDocument(id: string): Promise<void> {
   documents = documents.filter((item) => item.id !== id);
   return simulate(undefined);
+}
+
+/** 演示用的正文：把示例问答的引用拼成一段原文，便于验证「角标 → 原文定位」。 */
+export function demoGetDocumentContent(id: string, chunkId?: string): Promise<DocumentContent> {
+  const document = documents.find((item) => item.id === id);
+  if (!document) {
+    return Promise.reject(new Error("DOCUMENT_NOT_FOUND"));
+  }
+  const citations = [
+    // 问答页走 mock.ts 的演示回答，优先用它，保证角标里的 chunk_id 能对上。
+    ...DEMO_CITATIONS,
+    ...history.flatMap((item) => item.citations),
+  ]
+    .filter((item) => item.document_id === id)
+    // 同一份演示条文可能同时来自历史与演示回答，按条号+摘录去重。
+    .filter(
+      (item, index, list) =>
+        list.findIndex(
+          (other) => other.article_number === item.article_number && other.excerpt === item.excerpt,
+        ) === index,
+    )
+    .map((item) => ({ ...item, excerpt: item.excerpt ?? "" }));
+  const anchorCitation =
+    chunkId === undefined ? undefined : citations.find((item) => item.chunk_id === chunkId);
+  const text = [
+    `${document.title}`,
+    "",
+    "（以下为演示数据：仅用于验证「点击角标 → 回到原文对应条文」的界面与定位逻辑。）",
+    "",
+    ...citations.map((item) => `${item.article_number ?? "相关条文"}　${item.excerpt}`),
+  ].join("\n");
+  const start = anchorCitation === undefined ? -1 : text.indexOf(anchorCitation.excerpt);
+  const located = start >= 0;
+  const content: DocumentContent = {
+    id: document.id,
+    knowledge_base_id: document.knowledge_base_id,
+    title: document.title,
+    file_name: document.file_name,
+    page_count: document.page_count,
+    policy_status: document.current_version?.policy_status ?? "unknown",
+    source: "txt",
+    text,
+    blocks: [],
+    anchor:
+      anchorCitation === undefined
+        ? null
+        : {
+            chunk_id: anchorCitation.chunk_id,
+            article_number: anchorCitation.article_number,
+            page_number: anchorCitation.page_number,
+            excerpt: anchorCitation.excerpt,
+            start: located ? start : null,
+            end: located ? start + anchorCitation.excerpt.length : null,
+            located,
+          },
+  };
+  return simulate(content);
 }
 
 export function demoUploadDocument(payload: {

@@ -1,6 +1,7 @@
 """知识库目录、导入健康度与文档查询。"""
 
 import json
+import re
 from pathlib import Path
 from typing import Literal
 from fastapi import APIRouter
@@ -12,9 +13,12 @@ from app.core.exceptions import ApiError
 from app.repositories.document_models import ChunkRecord as Chunk, DocumentRecord as Doc
 from app.repositories.page_models import KnowledgeBase as KB, ImportTask
 
-from app.schemas.pages import BaseInfo, BaseStats, Document, DocumentDetail, Page
+from app.schemas.pages import (
+    BaseInfo, BaseStats, Document, DocumentContent, DocumentDetail, Page,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["知识库与文档"])
+RAW_ROOT = Path("/app/data/raw")
 UPLOAD_ROOT = Path("/app/data/processed/uploads")
 
 
@@ -109,7 +113,7 @@ def edit_base(key: str, payload: EditBase, db: Db, admin: Admin):
 def doc_view(db, doc, detail=False):
     parts = Path(doc.file_name).parts
     task = db.get(ImportTask, parts[1]) if len(parts) == 3 and parts[0] == "uploads" else None
-    path = Path("/app/data/raw") / doc.file_name
+    path = RAW_ROOT / doc.file_name
     version = dict(id=doc.version_id, policy_status=doc.policy_status, effective_from=utc(doc.effective_from), effective_to=utc(doc.effective_to))
     active = doc.policy_status == "active" and (not doc.effective_from or doc.effective_from <= now()) and (not doc.effective_to or doc.effective_to >= now())
     result = dict(id=doc.id, knowledge_base_id=doc.knowledge_base_id, title=doc.title, file_name=task.file_name if task else doc.file_name,
@@ -138,3 +142,124 @@ def list_documents(db: Db, user: User, paging: Paging, knowledge_base_id: str | 
 @router.get("/documents/{key}", response_model=DocumentDetail)
 def document_detail(key: str, db: Db, user: User):
     return doc_view(db, required(db, Doc, key, "DOCUMENT_NOT_FOUND"), True)
+
+
+CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+             "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _cn_number(value: str) -> int | None:
+    """把条号里的中文或阿拉伯数字转成整数；无法解析时返回 None。"""
+    if value.isdigit():
+        return int(value)
+    total, section = 0, 0
+    for char in value:
+        if char in CN_DIGITS:
+            section = CN_DIGITS[char]
+        elif char in {"十", "百", "千"}:
+            unit = {"十": 10, "百": 100, "千": 1000}[char]
+            total += (section or 1) * unit
+            section = 0
+        elif char == "万":
+            total = (total + section) * 10000
+            section = 0
+        else:
+            return None
+    return total + section
+
+
+def _article_ordinal(article: str | None) -> int:
+    """条文排序键；无条号的分块排在页内最后。"""
+    if not article:
+        return 10**6
+    match = re.search(r"第([零〇一二三四五六七八九十百千万0-9]+)条", article)
+    if not match:
+        return 10**6
+    return _cn_number(match.group(1)) or 10**6
+
+
+def _chunk_order(chunk) -> tuple[int, int, str]:
+    return (chunk.page_number or 0, _article_ordinal(chunk.article_number), chunk.id)
+
+
+def _document_path(doc) -> Path | None:
+    """原文位置：命令行导入的文件在 data/raw 下，页面上传的文件在 uploads 任务目录。"""
+    parts = Path(doc.file_name).parts
+    candidates = [RAW_ROOT / doc.file_name, UPLOAD_ROOT.joinpath(*parts[1:]) if len(parts) > 1 else UPLOAD_ROOT]
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def _locate_span(text: str, needle: str) -> tuple[int, int] | None:
+    """在原文中定位分块文本，忽略空白差异，返回原文中的字符区间。"""
+    def normalize(value: str) -> tuple[str, list[int]]:
+        kept, positions = [], []
+        for index, char in enumerate(value):
+            if char.isspace():
+                continue
+            kept.append(char)
+            positions.append(index)
+        return "".join(kept), positions
+
+    haystack, positions = normalize(text)
+    target, _ = normalize(needle)
+    if not target:
+        return None
+    # 整块定位失败时退化为前 40 个字符，避免重叠或清洗差异导致漏定位。
+    for probe in (target, target[:40]):
+        if not probe:
+            continue
+        found = haystack.find(probe)
+        if found < 0:
+            continue
+        end = found + len(probe)
+        if probe is target:
+            # 分块可能包含条号前的章/节标题，命中时把起点收窄到「第X条」。
+            marker = re.search(r"第[零〇一二三四五六七八九十百千万0-9]+条", target)
+            if marker and marker.start() > 0:
+                found += marker.start()
+        return positions[found], positions[end - 1] + 1
+    return None
+
+
+@router.get("/documents/{key}/content", response_model=DocumentContent)
+def document_content(key: str, db: Db, user: User, chunk_id: str | None = None):
+    """读取文档正文；带 chunk_id 时返回被引分块在正文中的位置。"""
+    doc = required(db, Doc, key, "DOCUMENT_NOT_FOUND")
+    chunks = db.scalars(select(Chunk).where(Chunk.document_id == doc.id)).all()
+    anchor_chunk = None
+    if chunk_id:
+        anchor_chunk = next((chunk for chunk in chunks if chunk.id == chunk_id), None)
+        if anchor_chunk is None:
+            raise ApiError(404, "CHUNK_NOT_FOUND", "引用的分块不存在或不属于该文档")
+
+    path = _document_path(doc)
+    text, blocks, source = None, [], "unavailable"
+    if path is not None and path.suffix.lower() in {".txt", ".md"}:
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("gb18030")
+        source = "txt"
+    elif chunks:
+        blocks = [dict(chunk_id=chunk.id, article_number=chunk.article_number,
+                       page_number=chunk.page_number, text=chunk.text)
+                  for chunk in sorted(chunks, key=_chunk_order)]
+        source = "pdf"
+
+    anchor = None
+    if anchor_chunk is not None:
+        start = end = None
+        located = source == "pdf"
+        if text is not None:
+            span = _locate_span(text, anchor_chunk.text)
+            if span is not None:
+                start, end = span
+                located = True
+        anchor = dict(chunk_id=anchor_chunk.id, article_number=anchor_chunk.article_number,
+                      page_number=anchor_chunk.page_number, excerpt=anchor_chunk.text[:160],
+                      start=start, end=end, located=located)
+
+    return dict(id=doc.id, knowledge_base_id=doc.knowledge_base_id, title=doc.title,
+                file_name=doc.file_name, page_count=doc.page_count, policy_status=doc.policy_status,
+                source=source, text=text, blocks=blocks, anchor=anchor)

@@ -11,6 +11,7 @@ from app.main import app
 from app.api.v1.page_common import now
 from app.core.database import session_factory
 from app.repositories.auth_models import QaRecord
+from app.repositories.document_models import ChunkRecord, DocumentRecord
 
 
 class PageApiTests(unittest.TestCase):
@@ -61,3 +62,39 @@ class PageApiTests(unittest.TestCase):
                 submit.assert_called_once()
                 self.assertEqual(client.get(root+"/ingestion-tasks/"+task["id"],headers=admin).json()["state"],"queued")
                 self.assertEqual(client.post(root+"/ingestion-tasks/"+task["id"]+"/retry",headers=admin).status_code,409)
+
+    def test_document_content_locates_citation(self):
+        """点角标后要能拿到原文，并定位到被引分块的字符区间（契约 §8.3.1）。"""
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+            "DATABASE_URL": "sqlite:///" + tmp + "/db", "DEEPSEEK_API_KEY": "",
+            "ADMIN_BOOTSTRAP_PASSWORD": "pages-test-password",
+        }), patch("app.api.v1.knowledge.RAW_ROOT", Path(tmp) / "raw"), TestClient(app) as client:
+            raw = Path(tmp) / "raw"
+            (raw / "txts").mkdir(parents=True)
+            body = "第一条 测试正文。\n第二条 目标条文内容出现在这里。\n"
+            (raw / "txts" / "样例.txt").write_text(body, encoding="utf-8")
+
+            root = "/api/v1"
+            token = client.post(root+"/auth/login", json={"username":"admin","password":"pages-test-password"}).json()["access_token"]
+            auth = {"Authorization": "Bearer " + token}
+            with session_factory()() as db:
+                db.add(DocumentRecord(id="doc", knowledge_base_id="default", version_id="ver", title="测试制度",
+                                      file_name="txts/样例.txt", file_hash="hash", policy_status="active",
+                                      status_source="default", page_count=0, parse_warnings="[]", updated_at=now()))
+                db.add(ChunkRecord(id="chunk", document_id="doc", version_id="ver", article_number="第二条",
+                                   text="第二条 目标条文内容出现在这里。"))
+                db.commit()
+
+            content = client.get(root+"/documents/doc/content?chunk_id=chunk", headers=auth).json()
+            self.assertEqual(content["source"], "txt")
+            self.assertEqual(content["text"], body)
+            self.assertTrue(content["anchor"]["located"])
+            self.assertEqual(content["anchor"]["article_number"], "第二条")
+            self.assertEqual(content["text"][content["anchor"]["start"]:content["anchor"]["end"]],
+                             "第二条 目标条文内容出现在这里。")
+
+            # 不带 chunk_id 时不返回 anchor；分块不属于本文档时报 404。
+            self.assertIsNone(client.get(root+"/documents/doc/content", headers=auth).json()["anchor"])
+            bad = client.get(root+"/documents/doc/content?chunk_id=other", headers=auth)
+            self.assertEqual(bad.status_code, 404)
+            self.assertEqual(bad.json()["error_code"], "CHUNK_NOT_FOUND")

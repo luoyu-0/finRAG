@@ -73,7 +73,7 @@ export function CitationPopover({
       <span className="cite-pop__foot">
         {onOpenDocument ? (
           <button type="button" className="cite-pop__open" onClick={onOpenDocument}>
-            在知识库中查看
+            在原文中定位
           </button>
         ) : null}
         {citation.source_url ? (
