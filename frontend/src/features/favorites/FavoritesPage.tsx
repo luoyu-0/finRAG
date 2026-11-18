@@ -9,8 +9,11 @@ import { useCallback, useState } from "react";
 import { ApiError } from "../../api/errors";
 import { listFavorites, removeFavorite } from "../../api/favorites";
 import { apiClient } from "../../api/session";
+import { AnswerText, hasCitationMarkers } from "../../components/AnswerText";
 import { Badge } from "../../components/Badge";
 import type { BadgeVariant } from "../../components/Badge";
+import { CitationList } from "../../components/CitationList";
+import { MarkdownText } from "../../components/MarkdownText";
 import { PageState } from "../../components/PageState";
 import { Pagination } from "../../components/Pagination";
 import { useLoader } from "../../hooks/useLoader";
@@ -127,7 +130,18 @@ export function FavoritesPage() {
                         </div>
                       </div>
 
-                      <p className="record__body">{record.answer_excerpt}</p>
+                      {record.citations.length > 0 && hasCitationMarkers(record.answer) ? (
+                        <AnswerText
+                          className="record__body"
+                          text={record.answer}
+                          citations={record.citations}
+                        />
+                      ) : (
+                        <>
+                          <MarkdownText className="record__body" text={record.answer} />
+                          <CitationList citations={record.citations} />
+                        </>
+                      )}
                     </li>
                   );
                 })}

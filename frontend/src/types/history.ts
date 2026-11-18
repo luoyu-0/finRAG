@@ -28,6 +28,9 @@ export interface FavoriteRecord {
   qa_id: string;
   question: string;
   answer_excerpt: string;
+  /** 原回答正文；用于与问答页一致地渲染 Markdown 与行内角标（契约 §9.4）。 */
+  answer: string;
+  citations: Citation[];
   evidence_support: Pick<EvidenceSupport, "score" | "level">;
   citation_count: number;
   created_at: string;
