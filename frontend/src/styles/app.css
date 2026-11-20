@@ -36,12 +36,38 @@
 }
 
 .app-nav {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
+/*
+ * 导航高亮：一整块底色在所有导航项之下滑动。
+ * 只有底色的 transform / width / height 参与过渡，文字始终静止。
+ */
+.app-nav__indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 14%);
+  pointer-events: none;
+  will-change: transform, width, height;
+}
+
+.app-nav__indicator--animated {
+  /* 用带轻微过冲的缓动模拟回弹：166px 位移约过冲 6–8px 后收住。 */
+  transition:
+    transform 360ms cubic-bezier(0.34, 1.32, 0.64, 1),
+    width 360ms cubic-bezier(0.34, 1.32, 0.64, 1),
+    height 360ms cubic-bezier(0.34, 1.32, 0.64, 1);
+}
+
 .app-nav__item {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -55,16 +81,31 @@
     color var(--transition-fast);
 }
 
-.app-nav__item:hover {
+.app-nav__item:not(.app-nav__item--active):hover {
   background: rgb(255 255 255 / 8%);
   color: var(--color-text-inverse);
   text-decoration: none;
 }
 
-.app-nav__item--active {
-  background: rgb(255 255 255 / 14%);
+.app-nav__item--active,
+/* base.css 的 a:hover 优先级更高，这里显式保持激活项的白字、加粗与无下划线。 */
+.app-nav__item--active:hover,
+.app-nav__item--active:focus-visible,
+.app-nav__item--active:active {
   color: var(--color-text-inverse);
   font-weight: 600;
+  text-decoration: none;
+}
+
+/* 鼠标按下时 base.css 的 a:hover 仍可能加下划线，这里兜底去掉。 */
+.app-nav__item:active {
+  text-decoration: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-nav__indicator--animated {
+    transition: none;
+  }
 }
 
 .app-nav__item--disabled {
@@ -754,9 +795,13 @@
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
+    /* 行高按内容打包，避免侧栏所在行被拉伸后留下一段空白。 */
+    align-content: start;
   }
 
   .app-sidebar {
+    /* 窄窗口下侧栏是横向导航条，高度应贴合内容；否则会被网格行拉伸。 */
+    align-self: start;
     flex-direction: row;
     align-items: center;
     gap: var(--space-4);
@@ -771,7 +816,17 @@
   }
 
   .app-nav {
+    /* 横向导航按等分宽度铺满剩余空间，5 个栏目宽度一致。 */
+    flex: 1 1 auto;
+    min-width: 0;
     flex-direction: row;
+  }
+
+  .app-nav__item {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    text-align: center;
   }
 
   .app-content {

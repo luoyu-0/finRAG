@@ -17,6 +17,12 @@ export interface CreateKnowledgeBasePayload {
   description?: string;
 }
 
+/** 更新知识库：只传需要修改的字段（契约 §7.4）。 */
+export interface UpdateKnowledgeBasePayload {
+  name?: string;
+  description?: string | null;
+}
+
 export async function listKnowledgeBases(
   client: ApiClient,
   query: ListKnowledgeBasesQuery = {},
@@ -61,4 +67,17 @@ export async function getKnowledgeBaseStats(
     return demoGetKnowledgeBaseStats(knowledgeBaseId);
   }
   return client.get<KnowledgeBaseStats>(`/knowledge-bases/${knowledgeBaseId}/stats`);
+}
+
+/** 修改知识库名称或描述（契约 §7.4）；只传需要改的字段。 */
+export async function updateKnowledgeBase(
+  client: ApiClient,
+  knowledgeBaseId: string,
+  payload: UpdateKnowledgeBasePayload,
+): Promise<KnowledgeBase> {
+  if (MOCK_ENABLED) {
+    const { demoUpdateKnowledgeBase } = await import("./demo");
+    return demoUpdateKnowledgeBase(knowledgeBaseId, payload);
+  }
+  return client.patch<KnowledgeBase>(`/knowledge-bases/${knowledgeBaseId}`, payload);
 }

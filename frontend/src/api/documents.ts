@@ -6,6 +6,7 @@ import type {
   CategoryCount,
   DocumentContent,
   DocumentDetail,
+  DocumentFileTicket,
   DocumentFormat,
   DocumentSort,
   DocumentSortOrder,
@@ -104,6 +105,23 @@ export async function deleteDocument(client: ApiClient, documentId: string): Pro
     return demoDeleteDocument(documentId);
   }
   await client.delete<void>(`/documents/${documentId}`);
+}
+
+/**
+ * 换取原文短时访问链接（契约 §8.3.2）。
+ *
+ * 浏览器的 PDF 阅读器无法附加 `Authorization` 头，因此后端签发 2 分钟有效的票据，
+ * 前端把 `url` 直接交给 `iframe`/`embed`，由浏览器原生阅读器渲染。
+ */
+export async function createDocumentFileTicket(
+  client: ApiClient,
+  documentId: string,
+): Promise<DocumentFileTicket> {
+  if (MOCK_ENABLED) {
+    const { demoCreateDocumentFileTicket } = await import("./demo");
+    return demoCreateDocumentFileTicket(documentId);
+  }
+  return client.post<DocumentFileTicket>(`/documents/${documentId}/file-ticket`);
 }
 
 /**

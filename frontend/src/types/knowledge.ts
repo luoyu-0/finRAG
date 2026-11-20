@@ -101,9 +101,17 @@ export interface DocumentContent {
   page_count: number;
   policy_status: PolicyStatus;
   source: ContentSource;
+  /** 原始文件是否在服务器上；为 true 且是 PDF 时用浏览器原生阅读器渲染（§8.3.2）。 */
+  has_file: boolean;
   text: string | null;
   blocks: ContentBlock[];
   anchor: ContentAnchor | null;
+}
+
+/** 原文短时访问链接，对应 §8.3.2。 */
+export interface DocumentFileTicket {
+  url: string;
+  expires_in: number;
 }
 
 /** 文档列表排序字段，对应 §8.2 的 `sort` 参数。 */
