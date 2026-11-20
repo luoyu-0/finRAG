@@ -702,3 +702,150 @@ ol.md__list {
   line-height: 1.8;
   font-size: 14px;
 }
+
+/* 卡片内的行内提示：保留已有内容，只提示局部失败 */
+.card__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-danger-soft);
+}
+
+.card__notice .field__error {
+  margin: 0;
+}
+
+/* ══ 面包屑：标出「知识库 › 当前库 › 当前文档」并支持逐级回退 ══ */
+.breadcrumb {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.breadcrumb__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumb__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.breadcrumb__link {
+  color: var(--color-accent);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.breadcrumb__link:hover {
+  color: var(--color-accent-strong);
+  text-decoration: underline;
+}
+
+.breadcrumb__link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.breadcrumb__current {
+  color: var(--color-text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46ch;
+}
+
+.breadcrumb__sep {
+  color: var(--color-text-faint);
+}
+
+/* ══ PDF 原文：pdf.js 在页面内渲染，不依赖浏览器插件 ═══════════ */
+.doc-reader__pdf-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.pdf-viewer__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.pdf-viewer__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pdf-viewer__jump {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pdf-viewer__input {
+  width: 84px;
+}
+
+.pdf-viewer__canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 360px;
+  max-height: min(78vh, 900px);
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+}
+
+.pdf-viewer__canvas {
+  display: block;
+  background: var(--color-surface);
+  box-shadow: 0 1px 8px rgb(15 23 42 / 16%);
+}
+
+.pdf-viewer__canvas--hidden {
+  display: none;
+}
+
+.pdf-viewer__hint {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.pdf-viewer__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--color-danger);
+  text-align: center;
+}
+
+.pdf-viewer__error p {
+  margin: 0;
+}
