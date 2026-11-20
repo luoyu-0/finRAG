@@ -50,13 +50,29 @@ export function FavoritesPage() {
     () => listFavorites(apiClient, { page, page_size: PAGE_SIZE }),
     [page],
   );
-  const { data, error, loading, reload, beginLoad } = useLoader<Page<FavoriteRecord>>(fetcher);
+  const { data, error, loading, reload, beginLoad, setData } = useLoader<Page<FavoriteRecord>>(
+    fetcher,
+    { keepData: true },
+  );
 
   async function handleRemove(record: FavoriteRecord): Promise<void> {
     setActionError(null);
     try {
       await removeFavorite(apiClient, record.id);
-      reload();
+      // 取消收藏后就地移除该条，避免整页进入加载态。
+      setData((previous) =>
+        previous === null
+          ? null
+          : {
+              ...previous,
+              items: previous.items.filter((item) => item.id !== record.id),
+              total: Math.max(0, previous.total - 1),
+            },
+      );
+      if ((data?.items.length ?? 0) <= 1 && page > 1) {
+        beginLoad();
+        setPage(page - 1);
+      }
     } catch (caught) {
       setActionError(caught instanceof ApiError ? caught.message : "取消收藏失败，请稍后重试。");
     }
@@ -86,7 +102,7 @@ export function FavoritesPage() {
         </div>
 
         <div className="card__body card__body--flush">
-          {loading ? (
+          {loading && data === null ? (
             <PageState kind="loading" title="正在加载收藏…" />
           ) : error ? (
             <PageState
