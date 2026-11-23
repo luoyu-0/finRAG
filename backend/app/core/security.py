@@ -14,6 +14,8 @@ from app.core.config import get_settings
 ACCESS_TTL_SECONDS = 900
 REFRESH_TTL_DAYS = 7
 REFRESH_COOKIE = "finrag_refresh"
+DOCUMENT_TICKET_TTL_SECONDS = 120
+DOCUMENT_TICKET_SCOPE = "document_file"
 
 _password_hasher = PasswordHasher()
 
@@ -45,7 +47,44 @@ def decode_access_token(token: str) -> str:
         algorithms=["HS256"],
         options={"require": ["sub", "iat", "exp", "jti"]},
     )
+    # 旧版 Access Token 没有 scope，继续接受已签发的登录令牌。
+    if "scope" in payload:
+        raise jwt.InvalidTokenError("access token must not have a scope")
     return str(payload["sub"])
+
+
+def create_document_ticket(user_id: str, document_id: str, ttl: int = DOCUMENT_TICKET_TTL_SECONDS) -> str:
+    """短时原文访问票据。
+
+    浏览器的 PDF 阅读器无法携带 `Authorization` 头，只能把票据放进 URL；
+    因此票据与 Access Token 分开：作用域限定为单个文档，默认 2 分钟过期。
+    """
+    issued = datetime.now(UTC)
+    return jwt.encode(
+        {
+            "sub": user_id,
+            "doc": document_id,
+            "scope": DOCUMENT_TICKET_SCOPE,
+            "iat": issued,
+            "exp": issued + timedelta(seconds=ttl),
+            "jti": str(uuid4()),
+        },
+        get_settings().jwt_secret,
+        algorithm="HS256",
+    )
+
+
+def decode_document_ticket(token: str) -> str:
+    """校验原文票据并返回它授权的文档 ID。"""
+    payload = jwt.decode(
+        token,
+        get_settings().jwt_secret,
+        algorithms=["HS256"],
+        options={"require": ["sub", "doc", "scope", "iat", "exp", "jti"]},
+    )
+    if payload.get("scope") != DOCUMENT_TICKET_SCOPE:
+        raise jwt.InvalidTokenError("ticket scope mismatch")
+    return str(payload["doc"])
 
 
 def create_refresh_token() -> str:

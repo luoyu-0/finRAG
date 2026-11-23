@@ -98,3 +98,63 @@ class PageApiTests(unittest.TestCase):
             bad = client.get(root+"/documents/doc/content?chunk_id=other", headers=auth)
             self.assertEqual(bad.status_code, 404)
             self.assertEqual(bad.json()["error_code"], "CHUNK_NOT_FOUND")
+
+    def test_document_file_uses_short_lived_ticket(self):
+        """浏览器 PDF 阅读器拿不到 Authorization 头，改用 2 分钟票据读取原文（契约 §8.3.2）。"""
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+            "DATABASE_URL": "sqlite:///" + tmp + "/db", "DEEPSEEK_API_KEY": "",
+            "ADMIN_BOOTSTRAP_PASSWORD": "pages-test-password",
+        }), patch("app.api.v1.knowledge.RAW_ROOT", Path(tmp) / "raw"), TestClient(app) as client:
+            raw = Path(tmp) / "raw"
+            (raw / "txts").mkdir(parents=True)
+            body = "第一条 原文正文。\n"
+            (raw / "txts" / "原文.txt").write_text(body, encoding="utf-8")
+
+            root = "/api/v1"
+            token = client.post(root+"/auth/login", json={"username":"admin","password":"pages-test-password"}).json()["access_token"]
+            auth = {"Authorization": "Bearer " + token}
+            with session_factory()() as db:
+                db.add(DocumentRecord(id="doc", knowledge_base_id="default", version_id="ver", title="原文制度",
+                                      file_name="txts/原文.txt", file_hash="hash", policy_status="active",
+                                      status_source="default", page_count=0, parse_warnings="[]", updated_at=now()))
+                db.add(DocumentRecord(id="missing", knowledge_base_id="default", version_id="ver", title="缺原文",
+                                      file_name="txts/不存在.txt", file_hash="hash", policy_status="active",
+                                      status_source="default", page_count=0, parse_warnings="[]", updated_at=now()))
+                db.commit()
+
+            content = client.get(root+"/documents/doc/content", headers=auth).json()
+            self.assertTrue(content["has_file"])
+            self.assertFalse(client.get(root+"/documents/missing/content", headers=auth).json()["has_file"])
+
+            ticket = client.post(root+"/documents/doc/file-ticket", headers=auth)
+            self.assertEqual(ticket.status_code, 200, ticket.text)
+            self.assertEqual(ticket.headers["cache-control"], "no-store")
+            self.assertEqual(ticket.json()["expires_in"], 120)
+            url = ticket.json()["url"]
+            self.assertTrue(url.startswith("/api/v1/documents/doc/file?token="))
+
+            # 票据本身就是访问凭据，浏览器不再附加 Authorization。
+            file_response = client.get(url)
+            self.assertEqual(file_response.status_code, 200)
+            self.assertEqual(file_response.content, body.encode("utf-8"))
+            self.assertEqual(file_response.headers["cache-control"], "no-store")
+            self.assertEqual(file_response.headers["referrer-policy"], "no-referrer")
+            partial = client.get(url, headers={"Range": "bytes=0-5"})
+            self.assertEqual(partial.status_code, 206)
+            self.assertEqual(partial.content, body.encode("utf-8")[:6])
+            self.assertIn("text/plain", file_response.headers["content-type"])
+            self.assertIn("inline", file_response.headers["content-disposition"])
+
+            # 原文票据与登录令牌各自只用于对应接口。
+            ticket_auth = {"Authorization": "Bearer " + url.split("token=", 1)[1]}
+            self.assertEqual(client.get(root+"/documents/doc/content", headers=ticket_auth).status_code, 401)
+            self.assertEqual(client.get(root+"/documents/doc/file", params={"token": token}).status_code, 401)
+
+            # 无票据、伪造票据、票据指向其他文档时拒绝。
+            self.assertEqual(client.get(root+"/documents/doc/file").status_code, 401)
+            forged = client.get(root+"/documents/doc/file?token=not-a-ticket")
+            self.assertEqual(forged.status_code, 401)
+            self.assertEqual(forged.json()["error_code"], "AUTH_FILE_TICKET_INVALID")
+            self.assertEqual(client.get(url.replace("doc/file", "missing/file")).status_code, 403)
+            self.assertEqual(client.post(root+"/documents/missing/file-ticket", headers=auth).json()["error_code"],
+                             "DOCUMENT_FILE_MISSING")

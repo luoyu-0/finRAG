@@ -103,9 +103,15 @@ class DocumentContent(BaseModel):
     page_count: int
     policy_status: str
     source: Literal["txt", "pdf", "unavailable"]
+    has_file: bool
     text: str | None
     blocks: list[ContentBlock]
     anchor: ContentAnchor | None
+
+
+class DocumentFileTicket(BaseModel):
+    url: str
+    expires_in: int
 
 
 class TaskError(BaseModel):

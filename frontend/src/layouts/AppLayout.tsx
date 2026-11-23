@@ -3,8 +3,11 @@
  *
  * 导航项按角色过滤：文档导入仅管理员可见。**这只是交互优化**，
  * 真实权限由后端在接口层校验（见 docs/api/系统接口.md §1.2）。
+ *
+ * 导航高亮是一块独立的滑动底色（`.app-nav__indicator`）：切换栏目时它从旧位置
+ * 移到新位置，宽度跟随目标文字，落位带轻微回弹；文字本身不参与位移动画。
  */
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { Badge } from "../components/Badge";
@@ -27,6 +30,13 @@ const NAV_ITEMS: NavItem[] = [
 
 const ROLE_TEXT = { admin: "管理员", user: "普通用户" } as const;
 
+interface IndicatorBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export function AppLayout() {
   const { user, logout, mockMode } = useAuth();
   const location = useLocation();
@@ -36,6 +46,82 @@ export function AppLayout() {
     (item) => item.adminOnly !== true || user?.role === "admin",
   );
   const current = NAV_ITEMS.find((item) => location.pathname.startsWith(item.to));
+
+  const navRef = useRef<HTMLElement | null>(null);
+  const [indicator, setIndicator] = useState<IndicatorBox | null>(null);
+  /** 首次测量完成后再开启过渡，避免高亮块从左上角飞入。 */
+  const [animated, setAnimated] = useState(false);
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (nav === null) {
+      return;
+    }
+
+    const measure = (): void => {
+      const active = nav.querySelector<HTMLElement>(".app-nav__item--active");
+      setIndicator(
+        active === null
+          ? null
+          : {
+              x: active.offsetLeft,
+              y: active.offsetTop,
+              width: active.offsetWidth,
+              height: active.offsetHeight,
+            },
+      );
+    };
+
+    measure();
+    // 字体、窗口宽度、导航项增删或 active 类切换都会改变目标位置，需要重新测量。
+    // 监听 class 变化即可覆盖路由切换，effect 因此不需要依赖 pathname。
+    window.addEventListener("resize", measure);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    resizeObserver?.observe(nav);
+    const mutationObserver =
+      typeof MutationObserver === "undefined" ? null : new MutationObserver(measure);
+    mutationObserver?.observe(nav, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    const fontsReady = document.fonts?.ready;
+    if (fontsReady !== undefined) {
+      fontsReady.then(measure).catch(() => undefined);
+    }
+
+    return () => {
+      window.removeEventListener("resize", measure);
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (indicator === null || animated) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      setAnimated(true);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [indicator, animated]);
+
+  const navItems = visibleItems.map((item) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      className={({ isActive }) =>
+        isActive ? "app-nav__item app-nav__item--active" : "app-nav__item"
+      }
+    >
+      {item.label}
+    </NavLink>
+  ));
 
   return (
     <div className="app-shell">
@@ -51,18 +137,24 @@ export function AppLayout() {
           <span className="app-brand__sub">金融制度知识问答系统</span>
         </div>
 
-        <nav className="app-nav" aria-label="主导航">
-          {visibleItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                isActive ? "app-nav__item app-nav__item--active" : "app-nav__item"
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+        <nav className="app-nav" aria-label="主导航" ref={navRef}>
+          <span
+            aria-hidden="true"
+            className={
+              animated ? "app-nav__indicator app-nav__indicator--animated" : "app-nav__indicator"
+            }
+            style={
+              indicator === null
+                ? { opacity: 0, width: 0, height: 0 }
+                : {
+                    opacity: 1,
+                    width: indicator.width,
+                    height: indicator.height,
+                    transform: `translate(${String(indicator.x)}px, ${String(indicator.y)}px)`,
+                  }
+            }
+          />
+          {navItems}
         </nav>
 
         <div className="app-sidebar__footer">

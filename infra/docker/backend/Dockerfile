@@ -29,4 +29,5 @@ COPY process_docs.py test_ocr.py ./
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# HTTP 访问日志由 Nginx 记录，避免 Uvicorn 记录含原文票据的查询串。
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
