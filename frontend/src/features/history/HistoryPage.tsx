@@ -59,19 +59,22 @@ export function HistoryPage() {
     setAppliedKeyword(keyword.trim());
   }
 
+  function reloadAfterRemoval(): void {
+    if (data?.items.length === 1 && !data.has_next && page > 1) {
+      beginLoad();
+      setPage(page - 1);
+    } else {
+      reload();
+    }
+  }
+
   async function handleToggleFavorite(record: QaRecord): Promise<void> {
     setActionError(null);
     try {
       if (record.favorited && record.favorite_id !== null) {
         await removeFavorite(apiClient, record.favorite_id);
         if (onlyFavorited) {
-          // 筛选后的总数和分页由服务端同步，保留列表直到新数据返回。
-          if ((data?.items.length ?? 0) <= 1 && page > 1) {
-            beginLoad();
-            setPage(page - 1);
-          } else {
-            reload();
-          }
+          reloadAfterRemoval();
           return;
         }
         // 未筛选时该记录仍在当前页，只更新收藏状态。
@@ -109,20 +112,8 @@ export function HistoryPage() {
     setActionError(null);
     try {
       await deleteHistory(apiClient, record.id);
-      setData((previous) =>
-        previous === null
-          ? null
-          : {
-              ...previous,
-              items: previous.items.filter((item) => item.id !== record.id),
-              total: Math.max(0, previous.total - 1),
-            },
-      );
-      // 删掉本页最后一条时回到上一页，避免停留在空页。
-      if ((data?.items.length ?? 0) <= 1 && page > 1) {
-        beginLoad();
-        setPage(page - 1);
-      }
+      // 由服务端补齐前移的记录并同步总数与下一页状态。
+      reloadAfterRemoval();
     } catch (caught) {
       setActionError(caught instanceof ApiError ? caught.message : "删除失败，请稍后重试。");
     }
