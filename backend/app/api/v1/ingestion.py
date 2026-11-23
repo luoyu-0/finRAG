@@ -15,7 +15,7 @@ from app.api.v1.knowledge import UPLOAD_ROOT, required
 from app.api.v1.page_common import Admin, Db, Paging, now, paginate, utc
 from app.core.database import session_factory
 from app.core.exceptions import ApiError
-from app.repositories.document_deduplication import ImportInProgressError, knowledge_base_import_lock, remove_document_index, find_same_content
+from app.repositories.document_deduplication import ImportInProgressError, knowledge_base_import_lock, remove_document_index
 from app.repositories.document_models import DocumentRecord
 from app.repositories.page_models import ImportTask, KnowledgeBase
 from app.repositories.milvus_chunks import MilvusChunkRepository
@@ -59,10 +59,12 @@ def run_import(task_id):
             repo = repository(embedding)
             repo.ensure_collection()
             with knowledge_base_import_lock(task.knowledge_base_id):
-                _, warnings = _import_file(path, f"uploads/{task.id}/{task.file_name}", task.knowledge_base_id,
-                                           task.metadata_json, repo, embedding, ocr=PaddleOCRProvider())
-                doc = find_same_content(db, task.knowledge_base_id, hashlib.sha256(path.read_bytes()).hexdigest())
-                task.document_id = doc.id
+                document_id, _, warnings = _import_file(
+                    path, f"uploads/{task.id}/{task.file_name}", task.knowledge_base_id,
+                    task.metadata_json, repo, embedding, ocr=PaddleOCRProvider(),
+                )
+                # 索引在独立事务中提交，任务会话的 MySQL 快照可能看不到刚写入的文档。
+                task.document_id = document_id
                 task.warnings = list(warnings)
                 task.state = "succeeded"
                 task.finished_at = now()
