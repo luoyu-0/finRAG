@@ -64,7 +64,17 @@ export function HistoryPage() {
     try {
       if (record.favorited && record.favorite_id !== null) {
         await removeFavorite(apiClient, record.favorite_id);
-        // 收藏状态只影响当前一条记录，就地更新，不整页重刷。
+        if (onlyFavorited) {
+          // 筛选后的总数和分页由服务端同步，保留列表直到新数据返回。
+          if ((data?.items.length ?? 0) <= 1 && page > 1) {
+            beginLoad();
+            setPage(page - 1);
+          } else {
+            reload();
+          }
+          return;
+        }
+        // 未筛选时该记录仍在当前页，只更新收藏状态。
         setData((previous) =>
           previous === null
             ? null

@@ -64,4 +64,21 @@ describe("问答历史页", () => {
     expect(question).toBeInTheDocument();
     expect(screen.getByText("证据支持度 0%")).toBeInTheDocument();
   });
+
+  it("只看已收藏时取消收藏会移除记录并更新总数", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const question = "商业银行应如何管理流动性风险？";
+    await screen.findByText(question);
+
+    await user.click(screen.getByRole("checkbox", { name: "只看已收藏" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "收藏" })).not.toBeInTheDocument();
+    });
+    const buttons = screen.getAllByRole("button", { name: "取消收藏" });
+    await user.click(buttons[0]);
+
+    expect(await screen.findByText(`共 ${String(buttons.length - 1)} 条`)).toBeInTheDocument();
+    expect(screen.queryByText(question)).not.toBeInTheDocument();
+  });
 });

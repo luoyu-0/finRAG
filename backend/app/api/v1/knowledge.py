@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Literal
 import jwt
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import func, select
@@ -17,7 +17,7 @@ from app.repositories.document_models import ChunkRecord as Chunk, DocumentRecor
 from app.repositories.page_models import KnowledgeBase as KB, ImportTask
 
 from app.schemas.pages import (
-    BaseInfo, BaseStats, Document, DocumentContent, DocumentDetail, Page,
+    BaseInfo, BaseStats, Document, DocumentContent, DocumentDetail, DocumentFileTicket, Page,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["知识库与文档"])
@@ -273,8 +273,8 @@ def document_content(key: str, db: Db, user: User, chunk_id: str | None = None):
                 source=source, has_file=path is not None, text=text, blocks=blocks, anchor=anchor)
 
 
-@router.post("/documents/{key}/file-ticket")
-def document_file_ticket(key: str, db: Db, user: User):
+@router.post("/documents/{key}/file-ticket", response_model=DocumentFileTicket)
+def document_file_ticket(key: str, db: Db, user: User, response: Response) -> DocumentFileTicket:
     """签发原文短时访问链接（契约 §8.3.2）。
 
     浏览器的 PDF 阅读器不能附加 `Authorization` 头，前端因此先换一张 2 分钟有效的票据，
@@ -284,7 +284,11 @@ def document_file_ticket(key: str, db: Db, user: User):
     if _document_path(doc) is None:
         raise ApiError(404, "DOCUMENT_FILE_MISSING", "原文文件不在服务器上")
     token = create_document_ticket(user.id, doc.id)
-    return dict(url=f"/api/v1/documents/{doc.id}/file?token={token}", expires_in=DOCUMENT_TICKET_TTL_SECONDS)
+    response.headers["Cache-Control"] = "no-store"
+    return DocumentFileTicket(
+        url=f"/api/v1/documents/{doc.id}/file?token={token}",
+        expires_in=DOCUMENT_TICKET_TTL_SECONDS,
+    )
 
 
 @router.get("/documents/{key}/file", response_class=FileResponse)
@@ -305,5 +309,5 @@ def document_file(key: str, db: Db, token: str = ""):
         media_type=FILE_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
         filename=path.name,
         content_disposition_type="inline",
-        headers={"Cache-Control": "private, max-age=120"},
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
     )

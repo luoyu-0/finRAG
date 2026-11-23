@@ -109,6 +109,11 @@ class DocumentContent(BaseModel):
     anchor: ContentAnchor | None
 
 
+class DocumentFileTicket(BaseModel):
+    url: str
+    expires_in: int
+
+
 class TaskError(BaseModel):
     error_code: str
     message: str

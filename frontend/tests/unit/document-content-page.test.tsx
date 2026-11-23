@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,17 +29,23 @@ vi.mock("../../src/components/PdfViewer", () => ({
     src,
     initialPage,
     title,
+    onError,
   }: {
     src: string;
     initialPage?: number;
     title: string;
+    onError: (message: string) => void;
   }) => (
     <div
       data-testid="pdf-viewer"
       data-src={src}
       data-page={String(initialPage ?? 1)}
       data-title={title}
-    />
+    >
+      <button type="button" onClick={() => onError("PDF 页面渲染失败。")}>
+        模拟渲染失败
+      </button>
+    </div>
   ),
 }));
 
@@ -142,6 +149,50 @@ describe("文档正文页：PDF 渲染与返回位置", () => {
 
     const back = screen.getByRole("link", { name: "返回知识库" });
     expect(back).toHaveAttribute("href", "/knowledge/kb_001?page=2");
+  });
+
+  it("换票失败时显示分块，重试重新签发票据", async () => {
+    const user = userEvent.setup();
+    contentMock.mockResolvedValue({ ...FALLBACK_CONTENT, has_file: true });
+    ticketMock.mockRejectedValueOnce(new Error("签票失败"));
+    renderPage("/documents/doc_pdf?kb=kb_001&chunk=chunk_1");
+
+    expect(await screen.findByRole("heading", { name: "分块摘录" })).toBeInTheDocument();
+    expect(screen.getByText("编委会名单")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByTestId("pdf-viewer")).toBeInTheDocument();
+    expect(ticketMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("渲染失败时显示分块，重试使用新链接", async () => {
+    const user = userEvent.setup();
+    contentMock.mockResolvedValue({ ...FALLBACK_CONTENT, has_file: true });
+    renderPage("/documents/doc_pdf?kb=kb_001&chunk=chunk_1");
+
+    await user.click(await screen.findByRole("button", { name: "模拟渲染失败" }));
+    expect(await screen.findByRole("heading", { name: "分块摘录" })).toBeInTheDocument();
+    expect(screen.getByText("引用位置")).toBeInTheDocument();
+    ticketMock.mockResolvedValueOnce({
+      url: "/api/v1/documents/doc_pdf/file?token=new",
+      expires_in: 120,
+    });
+    await user.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByTestId("pdf-viewer")).toHaveAttribute(
+      "data-src",
+      "/api/v1/documents/doc_pdf/file?token=new",
+    );
+  });
+
+  it("从引用角标进入的文档返回来源定位", async () => {
+    contentMock.mockResolvedValue(FALLBACK_CONTENT);
+    renderPage("/documents/doc_pdf?kb=kb_001&chunk=chunk_1");
+
+    expect(await screen.findByRole("link", { name: "返回知识库" })).toHaveAttribute(
+      "href",
+      "/knowledge/kb_001?doc=doc_pdf",
+    );
   });
 
   it("原文不可渲染时退回按页展示的分块摘录", async () => {

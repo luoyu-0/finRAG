@@ -110,18 +110,20 @@ export async function deleteDocument(client: ApiClient, documentId: string): Pro
 /**
  * 换取原文短时访问链接（契约 §8.3.2）。
  *
- * 浏览器的 PDF 阅读器无法附加 `Authorization` 头，因此后端签发 2 分钟有效的票据，
- * 前端把 `url` 直接交给 `iframe`/`embed`，由浏览器原生阅读器渲染。
+ * 后端签发 2 分钟有效的票据，供 pdf.js 和浏览器新标签读取 PDF 原文。
  */
 export async function createDocumentFileTicket(
   client: ApiClient,
   documentId: string,
+  signal?: AbortSignal,
 ): Promise<DocumentFileTicket> {
   if (MOCK_ENABLED) {
     const { demoCreateDocumentFileTicket } = await import("./demo");
     return demoCreateDocumentFileTicket(documentId);
   }
-  return client.post<DocumentFileTicket>(`/documents/${documentId}/file-ticket`);
+  return client.post<DocumentFileTicket>(`/documents/${documentId}/file-ticket`, undefined, {
+    signal,
+  });
 }
 
 /**

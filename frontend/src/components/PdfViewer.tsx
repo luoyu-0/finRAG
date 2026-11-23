@@ -4,9 +4,9 @@
  * 为什么不用浏览器内置阅读器：把 PDF 直接交给 `iframe` 依赖浏览器自带的阅读器插件，
  * 遇到较窄的窗口、企业策略禁用内置阅读器或扫描页首次绘制失败时，界面上只会留下一块空白，
  * 前端无法感知失败也无法给出替代方案。这里改用 pdf.js 在页面内渲染画布：
- * - 先加载整份文档，再按页渲染，翻页/缩放都不再请求后端；
+ * - PDF.js 加载原文并按页渲染，已加载的页面可以直接重绘；
  * - 打开时直接定位到引用页，并提供页码跳转、缩放与适应宽度；
- * - 加载失败时展示明确错误，仍保留「新标签打开」的兜底入口。
+ * - 加载或渲染失败时通知正文页展示分块摘录。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
@@ -14,8 +14,6 @@ import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 // pdf.js 的 worker 必须单独打包成静态资源，`?url` 由 Vite 负责生成地址。
 // oxlint-disable-next-line import/default
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
-import { ApiError } from "../api/errors";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -29,12 +27,12 @@ export interface PdfViewerProps {
   /** 打开时定位到的页码，通常是被引条文所在页。 */
   initialPage?: number;
   title: string;
+  onError: (message: string) => void;
 }
 
-export function PdfViewer({ src, initialPage, title }: PdfViewerProps) {
+export function PdfViewer({ src, initialPage, title, onError }: PdfViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const docRef = useRef<PDFDocumentProxy | null>(null);
   const initialPageRef = useRef(initialPage ?? 1);
   /** 当前实际渲染比例；「适应宽度」下放大/缩小以它为基准。 */
   const renderedScaleRef = useRef(1);
@@ -50,8 +48,6 @@ export function PdfViewer({ src, initialPage, title }: PdfViewerProps) {
   const [scale, setScale] = useState<number | "fit">("fit");
   const [containerWidth, setContainerWidth] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
   const [pageInput, setPageInput] = useState("");
 
   const clampPage = useCallback(
@@ -79,47 +75,28 @@ export function PdfViewer({ src, initialPage, title }: PdfViewerProps) {
 
   useEffect(() => {
     let alive = true;
-    // 重新加载（换文档或点击重试）时先回到加载态；首屏渲染只执行一次。
-    // oxlint-disable-next-line react/set-state-in-effect
-    setLoading(true);
-    setError(null);
-    setDoc(null);
-    setPageCount(0);
-
-    const loadingTask = getDocument({ url: src, withCredentials: false });
-    loadingTask.promise
-      .then((loaded) => {
-        if (!alive) {
-          // 组件已卸载或换了文档，由 cleanup 中的 loadingTask.destroy() 释放资源。
-          return undefined;
-        }
-        docRef.current = loaded;
+    let loadingTask: ReturnType<typeof getDocument> | undefined;
+    async function load() {
+      loadingTask = getDocument({ url: src, withCredentials: false });
+      const loaded = await loadingTask.promise;
+      if (alive) {
         setDoc(loaded);
         setPageCount(loaded.numPages);
         setPageNumber(clampPage(initialPageRef.current, loaded.numPages));
         setLoading(false);
-        return undefined;
-      })
-      .catch((caught: unknown) => {
-        if (!alive) {
-          return;
-        }
-        setError(
-          caught instanceof ApiError
-            ? caught.message
-            : "PDF 原文加载失败，可尝试重新打开文档或在浏览器新标签中打开。",
-        );
-        setLoading(false);
-      });
+      }
+    }
+    void load().catch(() => {
+      if (alive) {
+        onError("PDF 原文加载失败。");
+      }
+    });
 
     return () => {
       alive = false;
-      void loadingTask.destroy();
-      docRef.current = null;
+      void loadingTask?.destroy();
     };
-    // retryKey 只用于「重新加载」按钮强制重建加载任务，不在 effect 体内读取。
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [src, retryKey, clampPage]);
+  }, [src, clampPage, onError]);
 
   // 渲染当前页；页码、缩放或容器宽度变化都会重绘。
   useEffect(() => {
@@ -145,6 +122,7 @@ export function PdfViewer({ src, initialPage, title }: PdfViewerProps) {
       const canvas = canvasRef.current;
       const context = canvas?.getContext("2d") ?? null;
       if (canvas === null || context === null) {
+        onError("当前浏览器无法绘制 PDF 页面。");
         return;
       }
 
@@ -164,10 +142,10 @@ export function PdfViewer({ src, initialPage, title }: PdfViewerProps) {
       await renderTask.promise;
     };
 
-    void render().catch((caught: unknown) => {
+    void render().catch(() => {
       // 翻页或缩放时的取消属于正常流程，不提示错误。
       if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : "PDF 页面渲染失败。");
+        onError("PDF 页面渲染失败。");
       }
     });
 
@@ -175,7 +153,7 @@ export function PdfViewer({ src, initialPage, title }: PdfViewerProps) {
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [doc, pageNumber, scale, containerWidth]);
+  }, [doc, pageNumber, scale, containerWidth, onError]);
 
   function goToPage(next: number): void {
     if (pageCount === 0) {
@@ -278,27 +256,10 @@ export function PdfViewer({ src, initialPage, title }: PdfViewerProps) {
       </div>
 
       <div ref={wrapRef} className="pdf-viewer__canvas-wrap" aria-busy={loading}>
-        {error !== null ? (
-          <div className="pdf-viewer__error" role="alert">
-            <p>{error}</p>
-            <button
-              type="button"
-              className="btn btn--sm"
-              onClick={() => {
-                setRetryKey((value) => value + 1);
-              }}
-            >
-              重新加载
-            </button>
-          </div>
-        ) : loading ? (
-          <p className="pdf-viewer__hint">正在加载 PDF…</p>
-        ) : null}
+        {loading ? <p className="pdf-viewer__hint">正在加载 PDF…</p> : null}
         <canvas
           ref={canvasRef}
-          className={
-            loading || error !== null ? "pdf-viewer__canvas--hidden" : "pdf-viewer__canvas"
-          }
+          className={loading ? "pdf-viewer__canvas--hidden" : "pdf-viewer__canvas"}
           aria-label={`${title} 第 ${String(pageNumber)} 页`}
         />
       </div>

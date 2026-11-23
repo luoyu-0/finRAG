@@ -128,6 +128,8 @@ class PageApiTests(unittest.TestCase):
 
             ticket = client.post(root+"/documents/doc/file-ticket", headers=auth)
             self.assertEqual(ticket.status_code, 200, ticket.text)
+            self.assertEqual(ticket.headers["cache-control"], "no-store")
+            self.assertEqual(ticket.json()["expires_in"], 120)
             url = ticket.json()["url"]
             self.assertTrue(url.startswith("/api/v1/documents/doc/file?token="))
 
@@ -135,8 +137,18 @@ class PageApiTests(unittest.TestCase):
             file_response = client.get(url)
             self.assertEqual(file_response.status_code, 200)
             self.assertEqual(file_response.content, body.encode("utf-8"))
+            self.assertEqual(file_response.headers["cache-control"], "no-store")
+            self.assertEqual(file_response.headers["referrer-policy"], "no-referrer")
+            partial = client.get(url, headers={"Range": "bytes=0-5"})
+            self.assertEqual(partial.status_code, 206)
+            self.assertEqual(partial.content, body.encode("utf-8")[:6])
             self.assertIn("text/plain", file_response.headers["content-type"])
             self.assertIn("inline", file_response.headers["content-disposition"])
+
+            # 原文票据与登录令牌各自只用于对应接口。
+            ticket_auth = {"Authorization": "Bearer " + url.split("token=", 1)[1]}
+            self.assertEqual(client.get(root+"/documents/doc/content", headers=ticket_auth).status_code, 401)
+            self.assertEqual(client.get(root+"/documents/doc/file", params={"token": token}).status_code, 401)
 
             # 无票据、伪造票据、票据指向其他文档时拒绝。
             self.assertEqual(client.get(root+"/documents/doc/file").status_code, 401)

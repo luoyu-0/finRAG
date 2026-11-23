@@ -47,6 +47,9 @@ def decode_access_token(token: str) -> str:
         algorithms=["HS256"],
         options={"require": ["sub", "iat", "exp", "jti"]},
     )
+    # 旧版 Access Token 没有 scope，继续接受已签发的登录令牌。
+    if "scope" in payload:
+        raise jwt.InvalidTokenError("access token must not have a scope")
     return str(payload["sub"])
 
 

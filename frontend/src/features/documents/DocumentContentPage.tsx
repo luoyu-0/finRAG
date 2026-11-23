@@ -8,6 +8,7 @@
  * - 顶部面包屑标出「知识库 › 当前知识库 › 当前文档」，并保留返回列表的分页与筛选。
  */
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import type { ComponentType } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { createDocumentFileTicket, getDocumentContent } from "../../api/documents";
@@ -16,6 +17,7 @@ import { getKnowledgeBase } from "../../api/knowledge";
 import { apiClient } from "../../api/session";
 import { Badge } from "../../components/Badge";
 import type { BreadcrumbItem } from "../../components/Breadcrumb";
+import type { PdfViewerProps } from "../../components/PdfViewer";
 import { Breadcrumb } from "../../components/Breadcrumb";
 import { PageState } from "../../components/PageState";
 import { useLoader } from "../../hooks/useLoader";
@@ -24,9 +26,19 @@ import type { DocumentContent } from "../../types/knowledge";
 /**
  * pdf.js 只在需要渲染 PDF 时加载：TXT 正文、单元测试与 jsdom 环境都不会引入阅读器。
  */
-const PdfViewer = lazy(() =>
-  import("../../components/PdfViewer").then((module) => ({ default: module.PdfViewer })),
+const PdfViewer = lazy<ComponentType<PdfViewerProps>>(() =>
+  import("../../components/PdfViewer").then(
+    (module) => ({ default: module.PdfViewer }),
+    () => ({ default: UnavailablePdfViewer }),
+  ),
 );
+
+function UnavailablePdfViewer({ onError }: PdfViewerProps) {
+  useEffect(() => {
+    onError("PDF 阅读器加载失败，可尝试刷新页面。");
+  }, [onError]);
+  return null;
+}
 
 const POLICY_LABEL = { active: "有效", inactive: "已失效", unknown: "未知" } as const;
 
@@ -44,14 +56,16 @@ function locationLabel(anchor: DocumentContent["anchor"]): string {
   return parts.join(" · ");
 }
 
-/** 仅真正的 PDF 原文件交给浏览器原生阅读器，其他格式仍按分块展示。 */
+/** PDF 原文件由 pdf.js 渲染。 */
 function isRenderablePdf(data: DocumentContent): boolean {
-  return data.source === "pdf" && data.has_file && /\.pdf$/i.test(data.file_name);
+  return data.has_file && /\.pdf$/i.test(data.file_name);
 }
 
-interface TicketState {
+interface PdfRequest {
   documentId: string;
-  url: string;
+  attempt: number;
+  url?: string;
+  error?: string;
 }
 
 export function DocumentContentPage() {
@@ -91,55 +105,77 @@ export function DocumentContentPage() {
     };
   }, [knowledgeBaseId]);
 
-  const [ticket, setTicket] = useState<TicketState | null>(null);
-  const [fileError, setFileError] = useState<{ documentId: string; message: string } | null>(null);
-  const pdfAvailable = data !== null && isRenderablePdf(data);
+  const [attempt, setAttempt] = useState(0);
+  const [pdfRequest, setPdfRequest] = useState<PdfRequest | null>(null);
+  const pdfAvailable = data?.id === documentId && isRenderablePdf(data);
 
   useEffect(() => {
     if (!pdfAvailable) {
       return;
     }
-    let alive = true;
-    createDocumentFileTicket(apiClient, documentId)
-      .then((result) => {
-        if (alive && result.url !== "") {
-          setTicket({ documentId, url: result.url });
+    const controller = new AbortController();
+    createDocumentFileTicket(apiClient, documentId, controller.signal)
+      .then(({ url }) => {
+        if (!controller.signal.aborted) {
+          setPdfRequest(
+            url === ""
+              ? { documentId, attempt, error: "原文文件暂时无法读取。" }
+              : { documentId, attempt, url },
+          );
         }
         return undefined;
       })
       .catch((caught: unknown) => {
-        if (!alive) {
-          return;
+        if (!controller.signal.aborted) {
+          setPdfRequest({
+            documentId,
+            attempt,
+            error: caught instanceof ApiError ? caught.message : "原文文件暂时无法读取。",
+          });
         }
-        setFileError({
-          documentId,
-          message: caught instanceof ApiError ? caught.message : "原文文件暂时无法读取。",
-        });
       });
-    return () => {
-      alive = false;
-    };
-  }, [pdfAvailable, documentId]);
+    return () => controller.abort();
+  }, [pdfAvailable, documentId, attempt]);
 
-  // 换文档时不需要清理状态：读取时按 documentId 判定，旧值自然失效。
+  const handlePdfError = useCallback(
+    (message: string) => {
+      setPdfRequest((current) =>
+        current?.documentId === documentId && current.attempt === attempt
+          ? { ...current, error: message }
+          : current,
+      );
+    },
+    [documentId, attempt],
+  );
+
+  const currentPdf =
+    pdfRequest?.documentId === documentId && pdfRequest.attempt === attempt ? pdfRequest : null;
+  const fileUrl = currentPdf?.url ?? null;
+  const pdfError = currentPdf?.error;
+  const showPdf = pdfAvailable && pdfError === undefined;
+
   const hitRef = useRef<HTMLElement | null>(null);
 
   const anchor = data?.anchor ?? null;
   const totalPages = data?.page_count ?? 0;
   const anchorPage = anchor?.page_number ?? null;
-  const fileUrl = ticket?.documentId === documentId ? ticket.url : null;
 
   useEffect(() => {
-    if (data?.anchor?.located) {
+    if (!showPdf && data?.anchor?.located) {
       // jsdom 等环境没有实现 scrollIntoView，缺少时静默跳过滚动，不影响高亮。
       hitRef.current?.scrollIntoView?.({ block: "center" });
     }
-  }, [data]);
+  }, [data, showPdf]);
 
+  const returnParams = new URLSearchParams(backQuery);
+  if (backQuery === "" && chunkId !== undefined) {
+    returnParams.set("doc", documentId);
+  }
+  const returnQuery = returnParams.toString();
   const backHref =
     knowledgeBaseId === null
       ? null
-      : `/knowledge/${encodeURIComponent(knowledgeBaseId)}${backQuery === "" ? "" : `?${backQuery}`}`;
+      : `/knowledge/${encodeURIComponent(knowledgeBaseId)}${returnQuery === "" ? "" : `?${returnQuery}`}`;
 
   const crumbs: BreadcrumbItem[] =
     knowledgeBaseId === null
@@ -229,7 +265,7 @@ export function DocumentContentPage() {
         </div>
       </div>
 
-      {anchor !== null && (!anchor.located || pdfAvailable) ? (
+      {anchor !== null && (!anchor.located || showPdf) ? (
         <section className="card">
           <div className="card__header">
             <h3 className="card__title">{anchor.located ? "引用原文" : "引用摘录"}</h3>
@@ -245,7 +281,31 @@ export function DocumentContentPage() {
         </section>
       ) : null}
 
-      {pdfAvailable ? (
+      {pdfError === undefined ? null : (
+        <PageState
+          kind="error"
+          title="无法加载 PDF 原文"
+          description={pdfError}
+          actions={
+            <>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setAttempt((value) => value + 1)}
+              >
+                重试
+              </button>
+              {fileUrl === null ? null : (
+                <a className="btn btn--ghost" href={fileUrl} target="_blank" rel="noreferrer">
+                  新标签打开
+                </a>
+              )}
+            </>
+          }
+        />
+      )}
+
+      {showPdf ? (
         <section className="card">
           <div className="card__header">
             <h3 className="card__title">PDF 原文</h3>
@@ -274,23 +334,16 @@ export function DocumentContentPage() {
             </div>
 
             {fileUrl === null ? (
-              fileError !== null && fileError.documentId === documentId ? (
-                <PageState
-                  kind="error"
-                  title="无法加载 PDF 原文"
-                  description={fileError.message}
-                  actions={
-                    <button type="button" className="btn" onClick={reload}>
-                      重试
-                    </button>
-                  }
-                />
-              ) : (
-                <PageState kind="loading" title="正在加载 PDF…" />
-              )
+              <PageState kind="loading" title="正在加载 PDF…" />
             ) : (
               <Suspense fallback={<PageState kind="loading" title="正在加载 PDF 阅读器…" />}>
-                <PdfViewer src={fileUrl} initialPage={anchorPage ?? 1} title={data.title} />
+                <PdfViewer
+                  key={fileUrl}
+                  src={fileUrl}
+                  initialPage={anchorPage ?? 1}
+                  title={data.title}
+                  onError={handlePdfError}
+                />
               </Suspense>
             )}
           </div>
@@ -346,7 +399,7 @@ export function DocumentContentPage() {
             ) : (
               <PageState
                 title="无法读取原文"
-                description="原始文件不在服务器上，只能按条号与页码核对引用。"
+                description="暂无可展示的正文，只能按条号与页码核对引用。"
               />
             )}
           </div>
