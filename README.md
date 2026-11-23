@@ -37,6 +37,7 @@ docker compose run --rm --no-deps backend python -m app.workers.import_documents
 - `frontend/` 使用 React 和 TypeScript，在该目录运行 `npm ci`、`npm run dev`。后端在 `backend/`，使用 FastAPI、LangChain、MySQL、Milvus 和 DeepSeek。部署配置位于 `compose.yaml` 和 `infra/`。
 - 启动异常时用 `docker compose ps` 和 `docker compose logs --tail=100 backend` 检查状态。端口、构建镜像源和应用配置见 [.env.example](.env.example)。
 - 调试模型收发时，在本地 `.env` 设置 `DEEPSEEK_LOG_CONTENT=1`，运行 `docker compose up -d backend` 使配置生效，再用 `docker compose logs -f backend` 查看。日志包含完整问题、证据和回复，调试结束后将开关设回 `0` 并重新执行 `docker compose up -d backend`。
+- 流式失败时，后端会记录失败阶段、模型结束原因、已发送字符数和证据块数。该诊断日志无需开启正文日志。
 
 ## 相关文档
 

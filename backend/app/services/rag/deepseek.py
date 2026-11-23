@@ -18,6 +18,9 @@ from openai import LengthFinishReasonError
 from app.domain.rag import ContextPackage, GeneratorOutput, RagQuery
 
 
+logger = logging.getLogger(__name__)
+
+
 SYSTEM_PROMPT = (
     "你是金融制度问答助手。仅依据给定证据回答；不得补造事实或来源。"
     "请输出 JSON 对象，格式为 "
@@ -117,20 +120,36 @@ class DeepSeekAnswerGenerator:
         raw = ""
         emitted = ""
         finish_reason = None
-        async for chunk in self._model_chain.astream({"question": query.question, "context": context.text}):
-            if isinstance(chunk.content, str):
-                raw += chunk.content
-            finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
-            prefix = _answer_prefix(raw)
-            if prefix and prefix.startswith(emitted):
-                delta = prefix[len(emitted):]
-                emitted = prefix
-                if delta:
-                    yield delta
-        result = self._parse_response(AIMessage(content=raw, response_metadata={"finish_reason": finish_reason}))
-        output = self._output(result, context)
-        if not output.answer.startswith(emitted):
-            raise ValueError("流式正文与完整结果不一致")
+        stage = "receive"
+        try:
+            async for chunk in self._model_chain.astream({"question": query.question, "context": context.text}):
+                if isinstance(chunk.content, str):
+                    raw += chunk.content
+                finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
+                stage = "decode_delta"
+                prefix = _answer_prefix(raw)
+                if prefix and prefix.startswith(emitted):
+                    delta = prefix[len(emitted):]
+                    emitted = prefix
+                    if delta:
+                        yield delta
+                stage = "receive"
+            stage = "finish_reason" if finish_reason != "stop" else "response_json"
+            result = self._parse_response(AIMessage(content=raw, response_metadata={"finish_reason": finish_reason}))
+            stage = "citation_labels"
+            output = self._output(result, context)
+            stage = "answer_consistency"
+            if not output.answer.startswith(emitted):
+                raise ValueError("流式正文与完整结果不一致")
+        except Exception as exc:
+            safe_reason = finish_reason if finish_reason in ("stop", "length", "content_filter", "tool_calls") else (
+                "missing" if finish_reason is None else "other"
+            )
+            logger.warning(
+                "DeepSeek 流式失败 stage=%s finish_reason=%s error=%s raw_chars=%d emitted_chars=%d evidence_count=%d",
+                stage, safe_reason, type(exc).__name__, len(raw), len(emitted), len(context.items),
+            )
+            raise
         if len(output.answer) > len(emitted):
             yield output.answer[len(emitted):]
         yield output

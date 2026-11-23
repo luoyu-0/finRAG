@@ -23,7 +23,7 @@ def test_json_prefix_handles_every_split_and_escaped_unicode():
 
 
 @pytest.mark.parametrize("finish_reason", ["stop", "length"])
-def test_stream_yields_before_completion_and_rejects_truncation(finish_reason):
+def test_stream_yields_before_completion_and_rejects_truncation(finish_reason, caplog):
     class Chain:
         resumed = False
 
@@ -45,3 +45,12 @@ def test_stream_yields_before_completion_and_rejects_truncation(finish_reason):
             parts = [part async for part in stream]
             assert parts == ["[S1]", GeneratorOutput("正文[S1]", ("S1",))]
     asyncio.run(scenario())
+    records = [r for r in caplog.records if r.name == "app.services.rag.deepseek"]
+    if finish_reason == "length":
+        assert len(records) == 1
+        diagnostic = records[0].getMessage()
+        assert "stage=finish_reason finish_reason=length" in diagnostic
+        assert "emitted_chars=6" in diagnostic
+        assert "正文" not in diagnostic
+    else:
+        assert not records
