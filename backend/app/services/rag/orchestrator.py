@@ -131,7 +131,7 @@ class RagService:
     async def _prepare_context(self, state: _RetrievedQuery) -> _PreparedQuery:
         query = state.query
         pool_size = query.top_k * self._retrieval_multiplier if self._reranker else query.top_k
-        fused = self._fusion.fuse(state.results, limit=pool_size)
+        fused = self._fusion.fuse(state.results, limit=pool_size, question=query.question)
         ranked, rerank_warning = await self._rerank(query, fused)
         warnings = list(state.warnings)
         if rerank_warning:

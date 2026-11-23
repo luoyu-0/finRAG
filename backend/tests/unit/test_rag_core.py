@@ -86,6 +86,22 @@ class ReciprocalRankFusionTests(unittest.TestCase):
         self.assertTrue(old_ids.issubset(new_ids))
         self.assertEqual(len(set(new_ids)), 12)
 
+    def test_question_phrase_promotes_specific_rule_over_shared_topic(self):
+        title_only = [
+            RetrievalHit(text="受益所有人识别信息应记录归档", source=source(f"topic-{i}"))
+            for i in range(12)
+        ]
+        answer = RetrievalHit(
+            text="金融机构对受益所有人识别核实工作过程中获取的有关信息，应当依法予以保密。",
+            source=source("answer"),
+        )
+        channels = {"vector": [*title_only[:5], answer, *title_only[5:]], "keyword": title_only}
+        fusion = PolicySearchFusion()
+        baseline = fusion.fuse(channels, 12)
+        improved = fusion.fuse(channels, 12, question="识别受益所有人过程中获取的信息应如何处理？")
+        self.assertNotIn("answer", [hit.source.chunk_id for hit in baseline[:8]])
+        self.assertIn("answer", [hit.source.chunk_id for hit in improved[:5]])
+
     def test_merges_duplicate_chunks_and_records_channels(self) -> None:
         common = RetrievalHit(text="共同证据", source=source("chunk-1"))
         keyword_only = RetrievalHit(text="关键词证据", source=source("chunk-2"))
