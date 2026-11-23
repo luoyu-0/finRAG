@@ -13,7 +13,7 @@ class QuestionRequestTests(unittest.TestCase):
         request = QuestionRequest(question="  制度依据是什么？  ")
 
         self.assertEqual(request.question, "制度依据是什么？")
-        self.assertEqual(request.top_k, 8)
+        self.assertEqual(request.top_k, 12)
 
     def test_rejects_naive_effective_time(self) -> None:
         with self.assertRaises(ValidationError):

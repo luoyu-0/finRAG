@@ -48,7 +48,9 @@ export function HistoryPage() {
       }),
     [page, appliedKeyword, onlyFavorited],
   );
-  const { data, error, loading, reload, beginLoad } = useLoader<Page<QaRecord>>(fetcher);
+  const { data, error, loading, reload, beginLoad, setData } = useLoader<Page<QaRecord>>(fetcher, {
+    keepData: true,
+  });
 
   function handleSearch(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -57,15 +59,50 @@ export function HistoryPage() {
     setAppliedKeyword(keyword.trim());
   }
 
+  function reloadAfterRemoval(): void {
+    if (data?.items.length === 1 && !data.has_next && page > 1) {
+      beginLoad();
+      setPage(page - 1);
+    } else {
+      reload();
+    }
+  }
+
   async function handleToggleFavorite(record: QaRecord): Promise<void> {
     setActionError(null);
     try {
       if (record.favorited && record.favorite_id !== null) {
         await removeFavorite(apiClient, record.favorite_id);
+        if (onlyFavorited) {
+          reloadAfterRemoval();
+          return;
+        }
+        // 未筛选时该记录仍在当前页，只更新收藏状态。
+        setData((previous) =>
+          previous === null
+            ? null
+            : {
+                ...previous,
+                items: previous.items.map((item) =>
+                  item.id === record.id ? { ...item, favorited: false, favorite_id: null } : item,
+                ),
+              },
+        );
       } else {
-        await addFavorite(apiClient, record.id);
+        const favorite = await addFavorite(apiClient, record.id);
+        setData((previous) =>
+          previous === null
+            ? null
+            : {
+                ...previous,
+                items: previous.items.map((item) =>
+                  item.id === record.id
+                    ? { ...item, favorited: true, favorite_id: favorite.id }
+                    : item,
+                ),
+              },
+        );
       }
-      reload();
     } catch (caught) {
       setActionError(caught instanceof ApiError ? caught.message : "操作失败，请稍后重试。");
     }
@@ -75,7 +112,8 @@ export function HistoryPage() {
     setActionError(null);
     try {
       await deleteHistory(apiClient, record.id);
-      reload();
+      // 由服务端补齐前移的记录并同步总数与下一页状态。
+      reloadAfterRemoval();
     } catch (caught) {
       setActionError(caught instanceof ApiError ? caught.message : "删除失败，请稍后重试。");
     }
@@ -133,7 +171,7 @@ export function HistoryPage() {
         </div>
 
         <div className="card__body card__body--flush">
-          {loading ? (
+          {loading && data === null ? (
             <PageState kind="loading" title="正在加载问答历史…" />
           ) : error ? (
             <PageState

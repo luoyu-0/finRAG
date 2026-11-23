@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from app.domain.rag import ContextItem, ContextPackage, FusedHit
+from app.domain.rag import DEFAULT_CONTEXT_CHUNKS, ContextItem, ContextPackage, FusedHit
 
 
 class ContextAssembler:
     """在固定字符与条目预算内组装上下文。"""
 
-    def __init__(self, max_chars: int = 12_000, max_chunks: int = 8) -> None:
+    def __init__(self, max_chars: int = 12_000, max_chunks: int = DEFAULT_CONTEXT_CHUNKS) -> None:
         if max_chars < 200:
             raise ValueError("max_chars 不能小于 200")
         if max_chunks < 1:

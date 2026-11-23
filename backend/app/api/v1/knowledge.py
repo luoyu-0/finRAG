@@ -4,22 +4,30 @@ import json
 import re
 from pathlib import Path
 from typing import Literal
-from fastapi import APIRouter
+import jwt
+from fastapi import APIRouter, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from app.api.v1.page_common import Admin, Db, Paging, User, now, paginate, utc
 from app.core.exceptions import ApiError
+from app.core.security import DOCUMENT_TICKET_TTL_SECONDS, create_document_ticket, decode_document_ticket
 from app.repositories.document_models import ChunkRecord as Chunk, DocumentRecord as Doc
 from app.repositories.page_models import KnowledgeBase as KB, ImportTask
 
 from app.schemas.pages import (
-    BaseInfo, BaseStats, CategoryCount, Document, DocumentContent, DocumentDetail, Page,
+    BaseInfo, BaseStats, CategoryCount, Document, DocumentContent, DocumentDetail, DocumentFileTicket, Page,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["知识库与文档"])
 RAW_ROOT = Path("/app/data/raw")
 UPLOAD_ROOT = Path("/app/data/processed/uploads")
+FILE_MEDIA_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+}
 
 
 def sync_catalog(db):
@@ -309,4 +317,44 @@ def document_content(key: str, db: Db, user: User, chunk_id: str | None = None):
 
     return dict(id=doc.id, knowledge_base_id=doc.knowledge_base_id, title=doc.title,
                 file_name=doc.file_name, page_count=doc.page_count, policy_status=doc.policy_status,
-                source=source, text=text, blocks=blocks, anchor=anchor)
+                source=source, has_file=path is not None, text=text, blocks=blocks, anchor=anchor)
+
+
+@router.post("/documents/{key}/file-ticket", response_model=DocumentFileTicket)
+def document_file_ticket(key: str, db: Db, user: User, response: Response) -> DocumentFileTicket:
+    """签发原文短时访问链接（契约 §8.3.2）。
+
+    浏览器的 PDF 阅读器不能附加 `Authorization` 头，前端因此先换一张 2 分钟有效的票据，
+    再把票据 URL 交给 PDF 阅读器。票据只允许读取这一个文档。
+    """
+    doc = required(db, Doc, key, "DOCUMENT_NOT_FOUND")
+    if _document_path(doc) is None:
+        raise ApiError(404, "DOCUMENT_FILE_MISSING", "原文文件不在服务器上")
+    token = create_document_ticket(user.id, doc.id)
+    response.headers["Cache-Control"] = "no-store"
+    return DocumentFileTicket(
+        url=f"/api/v1/documents/{doc.id}/file?token={token}",
+        expires_in=DOCUMENT_TICKET_TTL_SECONDS,
+    )
+
+
+@router.get("/documents/{key}/file", response_class=FileResponse)
+def document_file(key: str, db: Db, token: str = ""):
+    """按票据返回原文文件，供浏览器原生的 PDF 阅读器直接渲染。"""
+    doc = required(db, Doc, key, "DOCUMENT_NOT_FOUND")
+    try:
+        permitted = decode_document_ticket(token)
+    except jwt.InvalidTokenError as exc:
+        raise ApiError(401, "AUTH_FILE_TICKET_INVALID", "原文链接已失效，请重新打开文档") from exc
+    if permitted != doc.id:
+        raise ApiError(403, "AUTH_FORBIDDEN", "当前用户无权读取该文档")
+    path = _document_path(doc)
+    if path is None:
+        raise ApiError(404, "DOCUMENT_FILE_MISSING", "原文文件不在服务器上")
+    return FileResponse(
+        path,
+        media_type=FILE_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
+        filename=path.name,
+        content_disposition_type="inline",
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )

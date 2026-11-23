@@ -122,6 +122,7 @@ services:
       MILVUS_HOST: milvus
       MILVUS_PORT: "19530"
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_LOG_CONTENT: ${DEEPSEEK_LOG_CONTENT:-0}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
       TZ: ${TZ:-Asia/Shanghai}
     ports:

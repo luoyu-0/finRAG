@@ -131,7 +131,9 @@ docker compose ps
 
 ### LangChain 问答编排
 
-后端依赖包含 `langchain-core` 和官方 `langchain-deepseek` 集成包；这两者提供本项目实际使用的 LangChain 链、提示模板和模型适配能力，不额外引入 Agent/LangGraph 工作流。升级后执行 `docker compose up -d --build --wait backend`，已有数据库和向量索引可直接复用。`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和问答 API 保持兼容。
+后端依赖包含 `langchain-core` 和官方 `langchain-deepseek` 集成包；这两者提供本项目实际使用的 LangChain 链、提示模板和模型适配能力，不额外引入 Agent/LangGraph 工作流。需要检查模型输入和回复时，在本地 `.env` 设置 `DEEPSEEK_LOG_CONTENT=1`，执行 `docker compose up -d --build backend` 后用 `docker compose logs -f backend` 查看。请求和回复用同一调用 ID 关联，流式回复在结束时汇总。日志包含完整问题与原文，默认关闭，排查结束后设回 0 并重建容器。默认发送最多 12 块，总预算仍为 12000 字符。
+
+升级后执行 `docker compose up -d --build --wait backend`，已有数据库和向量索引可直接复用。`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和问答 API 保持兼容。
 
 模型请求保留 JSON 输出、1200 Token 上限、关闭思考和 45 秒请求超时；自动重试为 0，避免请求失败时隐式增加调用次数。LangSmith 云端追踪无需开启或配置。回归步骤见 [LangChain 迁移验证](docs/testing/LangChain迁移验证.md)。
 
@@ -293,6 +295,7 @@ npm run test:e2e
 - [x] 接入 MySQL 中文关键词检索与向量融合
 - [x] 接入扫描 PDF 页的选择性 PaddleOCR、500 字符分块和 50 题开发基准评测命令
 - [x] 实现知识库、文档上传/任务、历史查询和收藏的后端 API，补齐文档列表分页、排序和筛选
-- [ ] 接入 Reranker，并实现导入管理界面
+- [x] 文档正文页按引用页码定位；PDF 原文件经短时票据由 pdf.js 在页面内渲染
+- [ ] 接入 Reranker；导入管理界面已具备上传与任务进度，仍需补充批量与取消
 - [ ] 用正式数据验证端到端问答质量与课程指标
 

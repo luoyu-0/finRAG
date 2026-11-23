@@ -14,6 +14,7 @@ import type { FavoriteRecord, QaRecord } from "../types/history";
 import type {
   CategoryCount,
   DocumentContent,
+  DocumentFileTicket,
   DocumentFormat,
   DocumentSort,
   DocumentSortOrder,
@@ -414,6 +415,25 @@ export function demoCreateKnowledgeBase(payload: {
   return simulate(created);
 }
 
+/** 演示模式下的知识库更新：直接改内存副本，便于验证「描述可编辑」。 */
+export function demoUpdateKnowledgeBase(
+  id: string,
+  payload: { name?: string; description?: string | null },
+): Promise<KnowledgeBase> {
+  const index = knowledgeBases.findIndex((item) => item.id === id);
+  if (index < 0) {
+    return Promise.reject(new Error("KNOWLEDGE_BASE_NOT_FOUND"));
+  }
+  const updated: KnowledgeBase = {
+    ...knowledgeBases[index],
+    ...(payload.name === undefined ? {} : { name: payload.name }),
+    ...(payload.description === undefined ? {} : { description: payload.description }),
+    updated_at: new Date().toISOString(),
+  };
+  knowledgeBases = knowledgeBases.map((item) => (item.id === id ? updated : item));
+  return simulate(updated);
+}
+
 export function demoGetKnowledgeBaseStats(id: string): Promise<KnowledgeBaseStats> {
   const docs = documents.filter((item) => item.knowledge_base_id === id);
   const active = docs.filter((item) => item.current_version?.policy_status === "active").length;
@@ -529,6 +549,15 @@ export function demoDeleteDocument(id: string): Promise<void> {
   return simulate(undefined);
 }
 
+/** 演示模式不提供真实 PDF 文件，正文页据此退回分块摘录。 */
+export function demoCreateDocumentFileTicket(id: string): Promise<DocumentFileTicket> {
+  const document = documents.find((item) => item.id === id);
+  if (!document) {
+    return Promise.reject(new Error("DOCUMENT_NOT_FOUND"));
+  }
+  return simulate({ url: "", expires_in: 0 });
+}
+
 /** 演示用的正文：把示例问答的引用拼成一段原文，便于验证「角标 → 原文定位」。 */
 export function demoGetDocumentContent(id: string, chunkId?: string): Promise<DocumentContent> {
   const document = documents.find((item) => item.id === id);
@@ -568,6 +597,7 @@ export function demoGetDocumentContent(id: string, chunkId?: string): Promise<Do
     page_count: document.page_count,
     policy_status: document.current_version?.policy_status ?? "unknown",
     source: "txt",
+    has_file: true,
     text,
     blocks: [],
     anchor:

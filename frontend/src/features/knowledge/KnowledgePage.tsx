@@ -41,7 +41,9 @@ export function KnowledgePage() {
       }),
     [page, appliedKeyword],
   );
-  const { data, error, loading, reload, beginLoad } = useLoader<Page<KnowledgeBase>>(fetcher);
+  const { data, error, loading, reload, beginLoad } = useLoader<Page<KnowledgeBase>>(fetcher, {
+    keepData: true,
+  });
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -181,7 +183,7 @@ export function KnowledgePage() {
         </div>
 
         <div className="card__body card__body--flush">
-          {loading ? (
+          {loading && data === null ? (
             <PageState kind="loading" title="正在加载知识库…" />
           ) : error ? (
             <PageState
@@ -232,8 +234,9 @@ export function KnowledgePage() {
                 pageSize={data.page_size}
                 total={data.total}
                 hasNext={data.has_next}
+                disabled={loading}
                 onChange={(next) => {
-                  beginLoad();
+                  // 翻页保留现有列表，只更新表格区域。
                   setPage(next);
                 }}
               />

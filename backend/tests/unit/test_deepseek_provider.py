@@ -91,3 +91,49 @@ def test_propagates_http_error():
 
     with pytest.raises(RateLimitError):
         run_response("{}", status=429)
+
+
+@pytest.mark.parametrize("enabled", ["0", "1"])
+def test_content_log_matches_model_exchange(monkeypatch, caplog, enabled):
+    monkeypatch.setenv("DEEPSEEK_LOG_CONTENT", enabled)
+    content = '{"answer":"依据第一条[S1]","citation_labels":["S1"]}'
+    _, requests = run_response(content)
+    records = [r for r in caplog.records if r.name == "finrag.deepseek.content"]
+    if enabled == "0":
+        assert not records
+        return
+    request, response = records
+    assert request.args[0] == response.args[0]
+    assert [m["content"] for m in json.loads(request.args[1])[0]] == [
+        m["content"] for m in requests[0]["messages"]
+    ]
+    assert json.loads(response.args[1])["content"] == content
+
+
+def test_content_log_collects_stream_once(monkeypatch, caplog):
+    import asyncio
+
+    monkeypatch.setenv("DEEPSEEK_LOG_CONTENT", "1")
+    parts = ['{"answer":"正文', '[S1]","citation_labels":["S1"]}']
+    events = []
+    for index, part in enumerate(parts):
+        events.append("data: " + json.dumps({
+            "id": "fixture", "object": "chat.completion.chunk", "created": 0, "model": "deepseek-flash",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": part},
+                         "finish_reason": "stop" if index == 1 else None}],
+        }))
+    body = "\n\n".join([*events, "data: [DONE]", ""])
+
+    async def execute():
+        transport = httpx.MockTransport(lambda request: httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, text=body))
+        async with httpx.AsyncClient(transport=transport) as client:
+            with patch("app.services.rag.deepseek.ChatDeepSeek",
+                       side_effect=lambda **kw: ChatDeepSeek(**kw, http_async_client=client)):
+                generator = DeepSeekAnswerGenerator("test-key")
+                return [item async for item in generator.generate_stream(RagQuery("问题"), context())]
+
+    assert asyncio.run(execute())[-1].answer == "正文[S1]"
+    request, response = [r for r in caplog.records if r.name == "finrag.deepseek.content"]
+    assert request.args[0] == response.args[0]
+    assert json.loads(response.args[1])["content"] == "".join(parts)

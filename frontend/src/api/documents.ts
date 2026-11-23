@@ -6,6 +6,7 @@ import type {
   CategoryCount,
   DocumentContent,
   DocumentDetail,
+  DocumentFileTicket,
   DocumentFormat,
   DocumentSort,
   DocumentSortOrder,
@@ -104,6 +105,25 @@ export async function deleteDocument(client: ApiClient, documentId: string): Pro
     return demoDeleteDocument(documentId);
   }
   await client.delete<void>(`/documents/${documentId}`);
+}
+
+/**
+ * 换取原文短时访问链接（契约 §8.3.2）。
+ *
+ * 后端签发 2 分钟有效的票据，供 pdf.js 和浏览器新标签读取 PDF 原文。
+ */
+export async function createDocumentFileTicket(
+  client: ApiClient,
+  documentId: string,
+  signal?: AbortSignal,
+): Promise<DocumentFileTicket> {
+  if (MOCK_ENABLED) {
+    const { demoCreateDocumentFileTicket } = await import("./demo");
+    return demoCreateDocumentFileTicket(documentId);
+  }
+  return client.post<DocumentFileTicket>(`/documents/${documentId}/file-ticket`, undefined, {
+    signal,
+  });
 }
 
 /**

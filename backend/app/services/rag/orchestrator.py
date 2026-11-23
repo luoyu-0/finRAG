@@ -29,7 +29,7 @@ from app.services.rag.errors import (
     RagConfigurationError,
     RetrievalUnavailableError,
 )
-from app.services.rag.fusion import ReciprocalRankFusion
+from app.services.rag.fusion import PolicySearchFusion, ReciprocalRankFusion
 from app.services.rag.ports import AnswerGenerator, Reranker
 from app.services.rag.scoring import RetrievalEvidenceScorer
 
@@ -90,7 +90,7 @@ class RagService:
 
         self._retrievers = tuple(retrievers)
         self._generator = generator
-        self._fusion = fusion or ReciprocalRankFusion()
+        self._fusion = fusion or PolicySearchFusion()
         self._reranker = reranker
         self._context_assembler = context_assembler or ContextAssembler()
         self._evidence_scorer = evidence_scorer or RetrievalEvidenceScorer()
@@ -130,7 +130,8 @@ class RagService:
 
     async def _prepare_context(self, state: _RetrievedQuery) -> _PreparedQuery:
         query = state.query
-        fused = self._fusion.fuse(state.results, limit=query.top_k * self._retrieval_multiplier)
+        pool_size = query.top_k * self._retrieval_multiplier if self._reranker else query.top_k
+        fused = self._fusion.fuse(state.results, limit=pool_size)
         ranked, rerank_warning = await self._rerank(query, fused)
         warnings = list(state.warnings)
         if rerank_warning:
