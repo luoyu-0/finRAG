@@ -242,26 +242,9 @@ export function KnowledgeDetailPage() {
               <div className="stat__value">{stats.document_count}</div>
             </div>
             <div className="stat">
-              <div className="stat__label">制度版本数</div>
-              <div className="stat__value">{stats.version_count}</div>
-            </div>
-            <div className="stat">
               <div className="stat__label">分块数</div>
               <div className="stat__value">{stats.chunk_count}</div>
               <div className="stat__hint">已向量化 {stats.embedded_chunk_count}</div>
-            </div>
-            <div className="stat">
-              <div className="stat__label">有效版本</div>
-              <div className="stat__value">{stats.active_version_count}</div>
-              <div className="stat__hint">失效 {stats.inactive_version_count}</div>
-            </div>
-            <div className="stat">
-              <div className="stat__label">待向量化</div>
-              <div className="stat__value">{stats.pending_chunk_count}</div>
-            </div>
-            <div className="stat">
-              <div className="stat__label">解析告警</div>
-              <div className="stat__value">{stats.parse_warning_count}</div>
             </div>
           </div>
         </div>
@@ -387,9 +370,7 @@ export function KnowledgeDetailPage() {
                   <tr>
                     <th scope="col">制度文档</th>
                     <th scope="col">时效状态</th>
-                    <th scope="col">页数</th>
                     <th scope="col">大小</th>
-                    <th scope="col">版本</th>
                     <th scope="col">更新时间</th>
                   </tr>
                 </thead>
@@ -402,7 +383,12 @@ export function KnowledgeDetailPage() {
                         className={doc.id === focusedDocId ? "table__row--focus" : undefined}
                       >
                         <td>
-                          <div className="table__title">{doc.title}</div>
+                          <Link
+                            className="table__title"
+                            to={`/documents/${encodeURIComponent(doc.id)}`}
+                          >
+                            {doc.title}
+                          </Link>
                           <div className="table__sub">{doc.file_name}</div>
                           {doc.tags.length > 0 ? (
                             <div className="tag-list">
@@ -417,9 +403,7 @@ export function KnowledgeDetailPage() {
                         <td>
                           <Badge variant={POLICY_VARIANT[status]}>{POLICY_LABEL[status]}</Badge>
                         </td>
-                        <td className="table__numeric">{doc.page_count}</td>
                         <td className="table__numeric">{formatSize(doc.file_size)}</td>
-                        <td className="table__numeric">{doc.version_count}</td>
                         <td className="table__numeric">{formatDate(doc.updated_at)}</td>
                       </tr>
                     );

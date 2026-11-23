@@ -14,6 +14,11 @@ class Page[T](BaseModel):
     has_next: bool
 
 
+class CategoryCount(BaseModel):
+    category: str
+    document_count: int
+
+
 class BaseInfo(BaseModel):
     id: str
     name: str

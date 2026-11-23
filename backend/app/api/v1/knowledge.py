@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from app.api.v1.page_common import Admin, Db, Paging, User, now, paginate, utc
 from app.core.exceptions import ApiError
@@ -14,7 +14,7 @@ from app.repositories.document_models import ChunkRecord as Chunk, DocumentRecor
 from app.repositories.page_models import KnowledgeBase as KB, ImportTask
 
 from app.schemas.pages import (
-    BaseInfo, BaseStats, Document, DocumentContent, DocumentDetail, Page,
+    BaseInfo, BaseStats, CategoryCount, Document, DocumentContent, DocumentDetail, Page,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["知识库与文档"])
@@ -60,6 +60,35 @@ def kb_view(db, kb):
 @router.get("/knowledge-bases", response_model=Page[BaseInfo])
 def list_bases(db: Db, user: User, paging: Paging, q: str = ""):
     return paginate(db, select(KB).where(KB.name.contains(q, autoescape=True)).order_by(KB.id), paging, lambda kb: kb_view(db, kb))
+
+
+def document_category(db):
+    """在 SQL 中提取文件分类，兼容 MySQL 与测试使用的 SQLite。"""
+    path = func.replace(Doc.file_name, "\\", "/")
+    if db.get_bind().dialect.name == "sqlite":
+        # 去掉末尾所有非分隔符字符后，余下长度就是 basename 的偏移。
+        prefix = func.rtrim(path, func.replace(path, "/", ""))
+        name = func.substr(path, func.length(prefix) + 1)
+    else:
+        name = func.substring_index(path, "/", -1)
+    end = func.instr(name, ")_")
+    category = func.substr(name, 2, end - 2)
+    return case(
+        ((func.substr(name, 1, 1) == "(") & (end > 2), category),
+        else_="未分类",
+    )
+
+
+@router.get("/knowledge-bases/{key}/categories", response_model=Page[CategoryCount])
+def list_categories(key: str, db: Db, user: User):
+    required(db, KB, key, "KNOWLEDGE_BASE_NOT_FOUND")
+    category = document_category(db)
+    count = func.count(Doc.id)
+    rows = db.execute(select(category.label("category"), count.label("document_count"))
+                      .where(Doc.knowledge_base_id == key)
+                      .group_by(category).order_by(count.desc(), category.asc()))
+    items = [dict(row._mapping) for row in rows]
+    return dict(items=items, page=1, page_size=len(items), total=len(items), has_next=False)
 
 
 @router.get("/knowledge-bases/{key}", response_model=BaseInfo)
@@ -130,13 +159,31 @@ def doc_view(db, doc, detail=False):
 
 @router.get("/documents", response_model=Page[Document])
 def list_documents(db: Db, user: User, paging: Paging, knowledge_base_id: str | None = None,
-                   policy_status: Literal["active", "inactive", "unknown"] | None = None, q: str = ""):
-    stmt = select(Doc).where(Doc.title.contains(q, autoescape=True))
+                   policy_status: Literal["active", "inactive", "unknown"] | None = None, q: str = "",
+                   sort: Literal["updated_at", "title", "category", "chunk_count"] = "updated_at",
+                   order: Literal["asc", "desc"] = "desc", category: str | None = None,
+                   format: Literal["txt", "pdf"] | None = None, has_warning: bool | None = None):
+    stmt = select(Doc).where(Doc.title.icontains(q, autoescape=True))
     if knowledge_base_id:
         stmt = stmt.where(Doc.knowledge_base_id == knowledge_base_id)
     if policy_status:
         stmt = stmt.where(Doc.policy_status == policy_status)
-    return paginate(db, stmt.order_by(Doc.updated_at.desc(), Doc.id), paging, lambda doc: doc_view(db, doc))
+    category_value = document_category(db)
+    if category is not None:
+        stmt = stmt.where(category_value == category)
+    if format is not None:
+        stmt = stmt.where(func.lower(Doc.file_name).endswith("." + format))
+    if has_warning is not None:
+        warnings = func.coalesce(func.nullif(func.trim(Doc.parse_warnings), ""), "[]")
+        length = func.json_array_length if db.get_bind().dialect.name == "sqlite" else func.json_length
+        stmt = stmt.where((length(warnings) > 0) == has_warning)
+    sort_column = {"updated_at": Doc.updated_at, "title": Doc.title, "category": category_value}.get(sort)
+    if sort == "chunk_count":
+        counts = select(Chunk.document_id, func.count(Chunk.id).label("count")).group_by(Chunk.document_id).subquery()
+        stmt = stmt.outerjoin(counts, counts.c.document_id == Doc.id)
+        sort_column = func.coalesce(counts.c.count, 0)
+    ordering = sort_column.asc() if order == "asc" else sort_column.desc()
+    return paginate(db, stmt.order_by(ordering, Doc.id), paging, lambda doc: doc_view(db, doc))
 
 
 @router.get("/documents/{key}", response_model=DocumentDetail)
