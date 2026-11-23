@@ -4,24 +4,20 @@
 
 ## 启动与关闭
 
-在 Windows 上启动 Docker Desktop，然后在仓库根目录打开 PowerShell。
+启动 Docker（Windows 上打开 Docker Desktop），在仓库根目录执行以下命令。
 
-**首次配置**时，如果还没有 `.env`，先执行以下命令。打开 `.env`，设置 `MYSQL_ROOT_PASSWORD` 和 `MYSQL_PASSWORD`。如需使用问答功能，再填写 `DEEPSEEK_API_KEY`。
-
-```powershell
-Copy-Item .env.example .env
-```
+**首次配置**时，如果还没有 `.env`，将 [.env.example](.env.example) 复制为 `.env`，设置 `MYSQL_ROOT_PASSWORD` 和 `MYSQL_PASSWORD`。如需使用问答功能，再填写 `DEEPSEEK_API_KEY`。
 
 | 操作 | 命令 |
 | --- | --- |
-| 首次启动或改动代码、依赖后重建 | `./scripts/start.ps1 -Build` |
-| 日常启动 | `./scripts/start.ps1` |
+| 首次启动或改动代码、依赖后重建 | `docker compose up -d --build --wait` |
+| 日常启动 | `docker compose up -d --wait` |
 | 关闭服务并保留数据库和索引 | `docker compose down` |
 | 查看服务状态 | `docker compose ps` |
 
-启动脚本会等待服务就绪并打印网页地址，默认是 <http://127.0.0.1:3000>。默认开发管理员为 `admin`，初始密码为 `finrag2026`，可通过 `.env` 中的 `ADMIN_BOOTSTRAP_USERNAME` 和 `ADMIN_BOOTSTRAP_PASSWORD` 配置。普通用户可以在登录页注册。API 文档默认在 <http://127.0.0.1:8000/api/docs>。
+启动完成后，打开默认网页地址 <http://127.0.0.1:3000>。默认开发管理员为 `admin`，初始密码为 `finrag2026`，可通过 `.env` 中的 `ADMIN_BOOTSTRAP_USERNAME` 和 `ADMIN_BOOTSTRAP_PASSWORD` 配置。普通用户可以在登录页注册。API 文档默认在 <http://127.0.0.1:8000/api/docs>。
 
-在 Linux 上，从 [.env.example](.env.example) 创建 `.env` 并完成同样的配置，使用 `docker compose up -d --build --wait` 首次启动，日常启动使用 `docker compose up -d --wait`，关闭命令相同。
+如果修改了 `FRONTEND_PORT`，可用 `docker compose port frontend 80` 查看实际端口。
 
 ## 导入文档与问答
 
