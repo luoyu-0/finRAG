@@ -147,6 +147,10 @@ class Upload(BaseModel):
     ingestion_task: Task
 
 
+class BatchUpload(BaseModel):
+    items: list[Upload]
+
+
 class History(BaseModel):
     id: str
     question: str
