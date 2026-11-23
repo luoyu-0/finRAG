@@ -21,9 +21,11 @@
 
 ## 导入文档与问答
 
-配置 DeepSeek API Key 并启动服务后，使用管理员账号在文档导入页上传文件，等待索引完成，再到问答页选择对应知识库提问。
+使用管理员账号在文档导入页上传文件，等待导入任务完成。问答需配置 DeepSeek API Key，默认检索当前有效的制度文档。
 
-批量导入时，把获准使用的 TXT、PDF 放到 `data/raw/` 下，在仓库根目录执行以下命令。扫描版 PDF 使用带 `--ocr` 的命令识别无文字层的页面。
+后端批量上传使用 `POST /api/v1/documents/batch`，每批最多 20 个文件，每个文件单独返回任务 ID。参数、大小限制和轮询方式见 [批量上传接口](docs/api/系统接口.md#811-批量上传)。
+
+离线批量导入时，把获准使用的 TXT、PDF 放到 `data/raw/` 下，在仓库根目录执行以下命令。扫描版 PDF 使用带 `--ocr` 的命令识别无文字层的页面。
 
 ```powershell
 docker compose exec backend python -m app.workers.import_documents
@@ -39,8 +41,9 @@ docker compose run --rm --no-deps backend python -m app.workers.import_documents
 - 调试模型收发时，在本地 `.env` 设置 `DEEPSEEK_LOG_CONTENT=1`，运行 `docker compose up -d backend` 使配置生效，再用 `docker compose logs -f backend` 查看。日志包含完整问题、证据和回复，调试结束后将开关设回 `0` 并重新执行 `docker compose up -d backend`。
 - 流式失败时，后端会记录失败阶段、模型结束原因、已发送字符数和证据块数。该诊断日志无需开启正文日志。
 
-## 相关文档
+## 文档索引
 
+- [完整文档索引](docs/README.md)
 - [系统架构](docs/architecture/系统架构.md)与 [API 契约](docs/api/系统接口.md)
 - [后端测试](docs/testing/后端单元测试与覆盖率.md)、[RAG 延迟评测](docs/testing/RAG效果与首字延迟优化.md)与 [RRF 排序对照](docs/testing/RAG融合排序与上下文对照.md)
 - [开发分工](docs/开发分工.md)与 [协作规范](AGENTS.md)
