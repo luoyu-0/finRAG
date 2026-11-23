@@ -129,7 +129,9 @@ docker compose ps
 
 ### LangChain 问答编排
 
-后端依赖包含 `langchain-core` 和官方 `langchain-deepseek` 集成包；这两者提供本项目实际使用的 LangChain 链、提示模板和模型适配能力，不额外引入 Agent/LangGraph 工作流。升级后执行 `docker compose up -d --build --wait backend`，已有数据库和向量索引可直接复用。`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和问答 API 保持兼容。
+后端依赖包含 `langchain-core` 和官方 `langchain-deepseek` 集成包；这两者提供本项目实际使用的 LangChain 链、提示模板和模型适配能力，不额外引入 Agent/LangGraph 工作流。需要检查模型输入和回复时，在本地 `.env` 设置 `DEEPSEEK_LOG_CONTENT=1`，执行 `docker compose up -d --build backend` 后用 `docker compose logs -f backend` 查看。请求和回复用同一调用 ID 关联，流式回复在结束时汇总。日志包含完整问题与原文，默认关闭，排查结束后设回 0 并重建容器。默认发送最多 12 块，总预算仍为 12000 字符。
+
+升级后执行 `docker compose up -d --build --wait backend`，已有数据库和向量索引可直接复用。`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和问答 API 保持兼容。
 
 模型请求保留 JSON 输出、1200 Token 上限、关闭思考和 45 秒请求超时；自动重试为 0，避免请求失败时隐式增加调用次数。LangSmith 云端追踪无需开启或配置。回归步骤见 [LangChain 迁移验证](docs/testing/LangChain迁移验证.md)。
 

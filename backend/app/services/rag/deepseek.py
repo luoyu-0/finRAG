@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import logging
+import os
+
+from langchain_core.callbacks import BaseCallbackHandler
 
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -32,6 +36,31 @@ SYSTEM_PROMPT = (
 )
 
 
+class _ModelContentLog(BaseCallbackHandler):
+    """在模型边界记录格式化后的消息和解析前的回复，同一次调用共用 run_id。"""
+
+    def __init__(self):
+        self.logger = logging.getLogger("finrag.deepseek.content")
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.hasHandlers():
+            self.logger.addHandler(logging.StreamHandler())
+
+    def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
+        payload = [[{"role": "user" if m.type == "human" else m.type, "content": m.content} for m in batch] for batch in messages]
+        self.logger.info("DeepSeek 请求 %s %s", run_id, json.dumps(payload, ensure_ascii=False))
+
+    def on_llm_end(self, response, *, run_id, **kwargs):
+        for batch in response.generations:
+            for generation in batch:
+                message = generation.message
+                self.logger.info("DeepSeek 回复 %s %s", run_id, json.dumps({
+                    "content": message.content, "finish_reason": message.response_metadata.get("finish_reason")
+                }, ensure_ascii=False))
+
+    def on_llm_error(self, error, *, run_id, **kwargs):
+        self.logger.info("DeepSeek 调用失败 %s %s", run_id, type(error).__name__)
+
+
 class DeepSeekAnswerGenerator:
     """通过提示模板、异步聊天模型与严格解析链生成回答。"""
 
@@ -45,6 +74,7 @@ class DeepSeekAnswerGenerator:
         llm = ChatDeepSeek(
             api_key=api_key,
             model=model,
+            callbacks=[_ModelContentLog()] if os.getenv("DEEPSEEK_LOG_CONTENT") == "1" else None,
             timeout=45,
             max_retries=0,
             max_tokens=1200,

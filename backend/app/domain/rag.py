@@ -95,13 +95,16 @@ class RetrievalFilters:
         return True
 
 
+DEFAULT_CONTEXT_CHUNKS = 12
+
+
 @dataclass(frozen=True, slots=True)
 class RagQuery:
     """进入 RAG 核心流程的标准查询。"""
 
     question: str
     filters: RetrievalFilters = field(default_factory=RetrievalFilters)
-    top_k: int = 8
+    top_k: int = DEFAULT_CONTEXT_CHUNKS
 
     def __post_init__(self) -> None:
         normalized = self.question.strip()

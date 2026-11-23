@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
+from app.domain.rag import DEFAULT_CONTEXT_CHUNKS
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -12,7 +13,7 @@ class QuestionRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2_000)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=20)
     effective_at: datetime | None = None
-    top_k: int = Field(default=8, ge=1, le=50)
+    top_k: int = Field(default=DEFAULT_CONTEXT_CHUNKS, ge=1, le=50)
 
     @field_validator("question")
     @classmethod

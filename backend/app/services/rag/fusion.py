@@ -73,3 +73,22 @@ class ReciprocalRankFusion:
         ]
         fused.sort(key=lambda item: (-item.relevance_score, item.source.chunk_id))
         return tuple(fused[:limit])
+
+
+class PolicySearchFusion(ReciprocalRankFusion):
+    """保留原融合前段，再用语义加权排名填充余量并安排证据顺序。"""
+
+    def __init__(self) -> None:
+        super().__init__({"vector": 2}, rank_constant=5)
+
+    def fuse(self, results: Mapping[str, Sequence[RetrievalHit]], limit: int) -> tuple[FusedHit, ...]:
+        if limit < 1:
+            return ()
+        weighted = super().fuse(results, sum(len(hits) for hits in results.values()))
+        consensus = ReciprocalRankFusion().fuse(results, limit * 2 // 3)
+        selected = {item.source.chunk_id for item in consensus}
+        for item in weighted:
+            if len(selected) >= limit:
+                break
+            selected.add(item.source.chunk_id)
+        return tuple(item for item in weighted if item.source.chunk_id in selected)
