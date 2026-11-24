@@ -35,12 +35,6 @@ export interface ListTasksQuery extends PageQuery {
   document_id?: string;
 }
 
-export interface UploadDocumentInput {
-  file: File;
-  knowledgeBaseId: string;
-  title?: string;
-}
-
 export async function listDocuments(
   client: ApiClient,
   query: ListDocumentsQuery = {},
@@ -126,34 +120,41 @@ export async function createDocumentFileTicket(
   });
 }
 
-/**
- * 上传文档。
- *
- * 契约 §8.1 返回 `202`：上传只负责落盘与建任务，解析与索引异步进行，
- * 因此页面应轮询 {@link listTasks} 获取进度，而不是等待本请求完成解析。
- */
-export async function uploadDocument(
+/** 批量上传使用重复的 files 表单字段，返回与选中文件同序的任务。 */
+export async function uploadDocumentBatch(
   client: ApiClient,
-  input: UploadDocumentInput,
-): Promise<UploadDocumentResponse> {
+  files: readonly File[],
+  knowledgeBaseId: string,
+): Promise<{ items: UploadDocumentResponse[] }> {
   if (MOCK_ENABLED) {
     const { demoUploadDocument } = await import("./demo");
-    const created = await demoUploadDocument({
-      fileName: input.file.name,
-      fileSize: input.file.size,
-      knowledgeBaseId: input.knowledgeBaseId,
-      title: input.title,
-    });
-    return { document: created.document, ingestion_task: created.task };
+    const items = await Promise.all(
+      files.map(async (file) => {
+        const { document, task } = await demoUploadDocument({
+          fileName: file.name,
+          fileSize: file.size,
+          knowledgeBaseId,
+        });
+        return { document, ingestion_task: task };
+      }),
+    );
+    return { items };
   }
 
   const form = new FormData();
-  form.append("file", input.file);
-  form.append("knowledge_base_id", input.knowledgeBaseId);
-  if (input.title) {
-    form.append("title", input.title);
+  form.append("knowledge_base_id", knowledgeBaseId);
+  for (const file of files) {
+    form.append("files", file);
   }
-  return client.postForm<UploadDocumentResponse>("/documents", form);
+  return client.postForm<{ items: UploadDocumentResponse[] }>("/documents/batch", form);
+}
+
+export async function getTask(client: ApiClient, taskId: string): Promise<IngestionTask> {
+  if (MOCK_ENABLED) {
+    const { demoGetTask } = await import("./demo");
+    return demoGetTask(taskId);
+  }
+  return client.get<IngestionTask>(`/ingestion-tasks/${taskId}`);
 }
 
 export async function listTasks(

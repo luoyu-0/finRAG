@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import logging
+import os
+
+from langchain_core.callbacks import BaseCallbackHandler
 
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,6 +16,9 @@ from langchain_deepseek import ChatDeepSeek
 from openai import LengthFinishReasonError
 
 from app.domain.rag import ContextPackage, GeneratorOutput, RagQuery
+
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = (
@@ -32,6 +39,31 @@ SYSTEM_PROMPT = (
 )
 
 
+class _ModelContentLog(BaseCallbackHandler):
+    """在模型边界记录格式化后的消息和解析前的回复，同一次调用共用 run_id。"""
+
+    def __init__(self):
+        self.logger = logging.getLogger("finrag.deepseek.content")
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.hasHandlers():
+            self.logger.addHandler(logging.StreamHandler())
+
+    def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
+        payload = [[{"role": "user" if m.type == "human" else m.type, "content": m.content} for m in batch] for batch in messages]
+        self.logger.info("DeepSeek 请求 %s %s", run_id, json.dumps(payload, ensure_ascii=False))
+
+    def on_llm_end(self, response, *, run_id, **kwargs):
+        for batch in response.generations:
+            for generation in batch:
+                message = generation.message
+                self.logger.info("DeepSeek 回复 %s %s", run_id, json.dumps({
+                    "content": message.content, "finish_reason": message.response_metadata.get("finish_reason")
+                }, ensure_ascii=False))
+
+    def on_llm_error(self, error, *, run_id, **kwargs):
+        self.logger.info("DeepSeek 调用失败 %s %s", run_id, type(error).__name__)
+
+
 class DeepSeekAnswerGenerator:
     """通过提示模板、异步聊天模型与严格解析链生成回答。"""
 
@@ -45,6 +77,7 @@ class DeepSeekAnswerGenerator:
         llm = ChatDeepSeek(
             api_key=api_key,
             model=model,
+            callbacks=[_ModelContentLog()] if os.getenv("DEEPSEEK_LOG_CONTENT") == "1" else None,
             timeout=45,
             max_retries=0,
             max_tokens=1200,
@@ -87,20 +120,36 @@ class DeepSeekAnswerGenerator:
         raw = ""
         emitted = ""
         finish_reason = None
-        async for chunk in self._model_chain.astream({"question": query.question, "context": context.text}):
-            if isinstance(chunk.content, str):
-                raw += chunk.content
-            finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
-            prefix = _answer_prefix(raw)
-            if prefix and prefix.startswith(emitted):
-                delta = prefix[len(emitted):]
-                emitted = prefix
-                if delta:
-                    yield delta
-        result = self._parse_response(AIMessage(content=raw, response_metadata={"finish_reason": finish_reason}))
-        output = self._output(result, context)
-        if not output.answer.startswith(emitted):
-            raise ValueError("流式正文与完整结果不一致")
+        stage = "receive"
+        try:
+            async for chunk in self._model_chain.astream({"question": query.question, "context": context.text}):
+                if isinstance(chunk.content, str):
+                    raw += chunk.content
+                finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
+                stage = "decode_delta"
+                prefix = _answer_prefix(raw)
+                if prefix and prefix.startswith(emitted):
+                    delta = prefix[len(emitted):]
+                    emitted = prefix
+                    if delta:
+                        yield delta
+                stage = "receive"
+            stage = "finish_reason" if finish_reason != "stop" else "response_json"
+            result = self._parse_response(AIMessage(content=raw, response_metadata={"finish_reason": finish_reason}))
+            stage = "citation_labels"
+            output = self._output(result, context)
+            stage = "answer_consistency"
+            if not output.answer.startswith(emitted):
+                raise ValueError("流式正文与完整结果不一致")
+        except Exception as exc:
+            safe_reason = finish_reason if finish_reason in ("stop", "length", "content_filter", "tool_calls") else (
+                "missing" if finish_reason is None else "other"
+            )
+            logger.warning(
+                "DeepSeek 流式失败 stage=%s finish_reason=%s error=%s raw_chars=%d emitted_chars=%d evidence_count=%d",
+                stage, safe_reason, type(exc).__name__, len(raw), len(emitted), len(context.items),
+            )
+            raise
         if len(output.answer) > len(emitted):
             yield output.answer[len(emitted):]
         yield output

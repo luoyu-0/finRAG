@@ -171,16 +171,3 @@ export interface UploadDocumentResponse {
   document: DocumentSummary;
   ingestion_task: IngestionTask;
 }
-
-/** §8.1 允许上传的文件类型。 */
-export const ACCEPTED_UPLOAD_TYPES = [
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "text/plain",
-  "text/markdown",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-] as const;
-
-/** 上传大小上限（字节），与 Nginx client_max_body_size 保持一致。 */
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;

@@ -620,13 +620,12 @@ export function demoUploadDocument(payload: {
   fileName: string;
   fileSize: number;
   knowledgeBaseId: string;
-  title?: string;
 }): Promise<{ document: DocumentSummary; task: IngestionTask }> {
   const seq = documents.length + 1;
   const document: DocumentSummary = {
     id: `doc_${String(seq).padStart(3, "0")}`,
     knowledge_base_id: payload.knowledgeBaseId,
-    title: payload.title?.trim() ? payload.title.trim() : payload.fileName,
+    title: payload.fileName.replace(/\.[^.]+$/, ""),
     file_name: payload.fileName,
     file_size: payload.fileSize,
     page_count: Math.max(1, Math.round(payload.fileSize / 120_000)),
@@ -674,6 +673,11 @@ export function demoListTasks(
   return simulate(paginate(filtered, query));
 }
 
+export function demoGetTask(id: string): Promise<IngestionTask> {
+  const found = tasks.find((item) => item.id === id);
+  return found ? simulate(found) : Promise.reject(new Error("INGESTION_TASK_NOT_FOUND"));
+}
+
 export function demoRetryTask(id: string): Promise<IngestionTask> {
   tasks = tasks.map((item) =>
     item.id === id
@@ -687,8 +691,7 @@ export function demoRetryTask(id: string): Promise<IngestionTask> {
         }
       : item,
   );
-  const found = tasks.find((item) => item.id === id);
-  return found ? simulate(found) : Promise.reject(new Error("INGESTION_TASK_NOT_FOUND"));
+  return demoGetTask(id);
 }
 
 /* ── 问答历史 ───────────────────────────────────────────── */

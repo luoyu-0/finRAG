@@ -303,6 +303,39 @@
   color: var(--color-text-faint);
 }
 
+.upload__drop:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.upload__selection {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  list-style: disc;
+}
+
+.upload__selection,
+.upload__task-name {
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.upload__task-name {
+  margin: var(--space-4) 0 0;
+}
+
+@media (max-width: 520px) {
+  .upload-card > .card__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .upload-card .upload__actions {
+    flex-wrap: wrap;
+  }
+}
+
 /* ══ 记录卡（问答历史 / 收藏）══════════════════════════════ */
 
 .record {

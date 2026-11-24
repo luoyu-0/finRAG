@@ -21,7 +21,7 @@ from app.services.rag.errors import (
     GenerationFailedError,
     RetrievalUnavailableError,
 )
-from app.services.rag.fusion import ReciprocalRankFusion
+from app.services.rag.fusion import PolicySearchFusion, ReciprocalRankFusion
 from app.services.rag.orchestrator import RagService
 
 
@@ -73,6 +73,35 @@ class FailingReranker:
 
 
 class ReciprocalRankFusionTests(unittest.TestCase):
+    def test_semantic_leader_survives_consensus_cutoff(self):
+        answer = RetrievalHit(text="报送至指定数据库", source=source("answer"))
+        shared = [RetrievalHit(text="相关制度", source=source(f"shared-{i}")) for i in range(12)]
+        channels = {"vector": [answer, *shared], "keyword": shared}
+        old = ReciprocalRankFusion().fuse(channels, 8)
+        new = PolicySearchFusion().fuse(channels, 12)
+        old_ids = {hit.source.chunk_id for hit in old}
+        new_ids = [hit.source.chunk_id for hit in new]
+        self.assertNotIn("answer", old_ids)
+        self.assertIn("answer", new_ids[:8])
+        self.assertTrue(old_ids.issubset(new_ids))
+        self.assertEqual(len(set(new_ids)), 12)
+
+    def test_question_phrase_promotes_specific_rule_over_shared_topic(self):
+        title_only = [
+            RetrievalHit(text="受益所有人识别信息应记录归档", source=source(f"topic-{i}"))
+            for i in range(12)
+        ]
+        answer = RetrievalHit(
+            text="金融机构对受益所有人识别核实工作过程中获取的有关信息，应当依法予以保密。",
+            source=source("answer"),
+        )
+        channels = {"vector": [*title_only[:5], answer, *title_only[5:]], "keyword": title_only}
+        fusion = PolicySearchFusion()
+        baseline = fusion.fuse(channels, 12)
+        improved = fusion.fuse(channels, 12, question="识别受益所有人过程中获取的信息应如何处理？")
+        self.assertNotIn("answer", [hit.source.chunk_id for hit in baseline[:8]])
+        self.assertIn("answer", [hit.source.chunk_id for hit in improved[:5]])
+
     def test_merges_duplicate_chunks_and_records_channels(self) -> None:
         common = RetrievalHit(text="共同证据", source=source("chunk-1"))
         keyword_only = RetrievalHit(text="关键词证据", source=source("chunk-2"))

@@ -14,6 +14,11 @@ class Page[T](BaseModel):
     has_next: bool
 
 
+class CategoryCount(BaseModel):
+    category: str
+    document_count: int
+
+
 class BaseInfo(BaseModel):
     id: str
     name: str
@@ -140,6 +145,10 @@ class Task(BaseModel):
 class Upload(BaseModel):
     document: Document
     ingestion_task: Task
+
+
+class BatchUpload(BaseModel):
+    items: list[Upload]
 
 
 class History(BaseModel):

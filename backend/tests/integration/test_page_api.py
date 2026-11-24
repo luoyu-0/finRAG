@@ -63,6 +63,40 @@ class PageApiTests(unittest.TestCase):
                 self.assertEqual(client.get(root+"/ingestion-tasks/"+task["id"],headers=admin).json()["state"],"queued")
                 self.assertEqual(client.post(root+"/ingestion-tasks/"+task["id"]+"/retry",headers=admin).status_code,409)
 
+    def test_batch_upload_validates_all_files_and_queues_in_input_order(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+            "DATABASE_URL": "sqlite:///" + tmp + "/db", "DEEPSEEK_API_KEY": "",
+            "ADMIN_BOOTSTRAP_PASSWORD": "pages-test-password",
+        }), patch("app.api.v1.ingestion.UPLOAD_ROOT", Path(tmp) / "uploads"), TestClient(app) as client:
+            root = "/api/v1"
+            login = client.post(root+"/auth/login", json={"username":"admin","password":"pages-test-password"})
+            auth = {"Authorization": "Bearer " + login.json()["access_token"]}
+            url = root+"/documents/batch"
+            files = [("files", ("first.txt", b"first")), ("files", ("second.md", b"second"))]
+            form = {"knowledge_base_id": "default", "tags": ["batch", "test"]}
+
+            with patch("app.api.v1.ingestion.executor.submit") as submit:
+                bad_files = [files[0], ("files", ("blocked.exe", b"unsupported"))]
+                self.assertEqual(client.post(url, headers=auth, data=form, files=bad_files).status_code, 415)
+                self.assertEqual(client.post(url, headers=auth, data=form, files=files * 11).status_code, 422)
+                with patch("app.api.v1.ingestion.BATCH_LIMIT", 10):
+                    self.assertEqual(client.post(url, headers=auth, data=form, files=files).status_code, 413)
+                submit.assert_not_called()
+                self.assertFalse((Path(tmp) / "uploads").exists())
+                self.assertEqual(client.get(root+"/ingestion-tasks", headers=auth).json()["total"], 0)
+
+                response = client.post(url, headers=auth, data=form, files=files)
+                self.assertEqual(response.status_code, 202, response.text)
+                items = response.json()["items"]
+                self.assertEqual([item["document"]["title"] for item in items], ["first", "second"])
+                self.assertEqual([item["document"]["tags"] for item in items], [["batch", "test"]]*2)
+                keys = [item["ingestion_task"]["id"] for item in items]
+                self.assertEqual(len(set(keys)), 2)
+                self.assertEqual([call.args[1] for call in submit.call_args_list], keys)
+                for key, (_, (filename, content)) in zip(keys, files, strict=True):
+                    self.assertEqual(client.get(root+"/ingestion-tasks/"+key, headers=auth).json()["state"], "queued")
+                    self.assertEqual((Path(tmp) / "uploads" / key / filename).read_bytes(), content)
+
     def test_document_content_locates_citation(self):
         """点角标后要能拿到原文，并定位到被引分块的字符区间（契约 §8.3.1）。"""
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {

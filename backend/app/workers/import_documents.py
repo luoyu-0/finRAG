@@ -44,17 +44,19 @@ def import_file(
     *, ocr: OCRProvider | None = None, rebuild: bool = False,
 ) -> tuple[int, tuple[str, ...]]:
     with knowledge_base_import_lock(knowledge_base_id):
-        return _import_file(
+        _, count, warnings = _import_file(
             path, relative_path, knowledge_base_id, metadata, repository, embedding,
             ocr=ocr, rebuild=rebuild,
         )
+        return count, warnings
 
 
 def _import_file(
     path: Path, relative_path: str, knowledge_base_id: str,
     metadata: dict, repository: MilvusChunkRepository, embedding: BgeEmbeddingProvider,
     *, ocr: OCRProvider | None = None, rebuild: bool = False,
-) -> tuple[int, tuple[str, ...]]:
+) -> tuple[str, int, tuple[str, ...]]:
+    """返回实际入库或去重命中的文档 ID、分块数和告警。"""
     raw = path.read_bytes()
     if len(raw) > 50 * 1024 * 1024:
         raise ValueError("文件超过 50 MB 上限")
@@ -91,7 +93,7 @@ def _import_file(
                 # 同一路径改成另一已入库文件的内容时，移除该路径过时的索引。
                 remove_document_index(db, old, repository)
                 db.commit()
-            return 0, (f"内容与已入库文件 {duplicate.file_name} 相同，未重复解析或写入",)
+            return duplicate.id, 0, (f"内容与已入库文件 {duplicate.file_name} 相同，未重复解析或写入",)
     parsed = parse_document(path, ocr=ocr)
     title = metadata.get("title") or path.stem
     source_url = metadata.get("source_url")
@@ -139,7 +141,7 @@ def _import_file(
             page_number=chunk.page_number, article_number=chunk.article_number, text=chunk.text,
         ) for index, chunk in enumerate(chunks))
         db.commit()
-    return len(chunks), parsed.warnings
+    return document_id, len(chunks), parsed.warnings
 
 
 def main() -> None:

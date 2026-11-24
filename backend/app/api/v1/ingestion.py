@@ -15,7 +15,7 @@ from app.api.v1.knowledge import UPLOAD_ROOT, required
 from app.api.v1.page_common import Admin, Db, Paging, now, paginate, utc
 from app.core.database import session_factory
 from app.core.exceptions import ApiError
-from app.repositories.document_deduplication import ImportInProgressError, knowledge_base_import_lock, remove_document_index, find_same_content
+from app.repositories.document_deduplication import ImportInProgressError, knowledge_base_import_lock, remove_document_index
 from app.repositories.document_models import DocumentRecord
 from app.repositories.page_models import ImportTask, KnowledgeBase
 from app.repositories.milvus_chunks import MilvusChunkRepository
@@ -23,12 +23,14 @@ from app.services.rag.embedding import BgeEmbeddingProvider
 from app.services.ocr.paddle import PaddleOCRProvider
 from app.workers.import_documents import _import_file
 
-from app.schemas.pages import Page, Task, Upload
+from app.schemas.pages import BatchUpload, Page, Task, Upload
 
 router = APIRouter(prefix="/api/v1", tags=["导入任务"])
 executor = ThreadPoolExecutor(max_workers=1)
 logger = logging.getLogger(__name__)
 LIMIT = 50 * 1024 * 1024
+BATCH_LIMIT = 48 * 1024 * 1024
+BATCH_MAX_FILES = 20
 
 
 def repository(embedding=None):
@@ -59,10 +61,12 @@ def run_import(task_id):
             repo = repository(embedding)
             repo.ensure_collection()
             with knowledge_base_import_lock(task.knowledge_base_id):
-                _, warnings = _import_file(path, f"uploads/{task.id}/{task.file_name}", task.knowledge_base_id,
-                                           task.metadata_json, repo, embedding, ocr=PaddleOCRProvider())
-                doc = find_same_content(db, task.knowledge_base_id, hashlib.sha256(path.read_bytes()).hexdigest())
-                task.document_id = doc.id
+                document_id, _, warnings = _import_file(
+                    path, f"uploads/{task.id}/{task.file_name}", task.knowledge_base_id,
+                    task.metadata_json, repo, embedding, ocr=PaddleOCRProvider(),
+                )
+                # 索引在独立事务中提交，任务会话的 MySQL 快照可能看不到刚写入的文档。
+                task.document_id = document_id
                 task.warnings = list(warnings)
                 task.state = "succeeded"
                 task.finished_at = now()
@@ -84,23 +88,25 @@ def recover_tasks(db):
         executor.submit(run_import, task_id)
 
 
-@router.post("/documents", status_code=202, response_model=Upload)
-async def upload(db: Db, admin: Admin, file: Annotated[UploadFile, File()],
-                 knowledge_base_id: Annotated[str, Form()], title: Annotated[str | None, Form()] = None,
-                 tags: Annotated[list[str] | None, Form()] = None,
-                 effective_from: Annotated[str | None, Form()] = None, effective_to: Annotated[str | None, Form()] = None):
-    kb = required(db, KnowledgeBase, knowledge_base_id, "KNOWLEDGE_BASE_NOT_FOUND")
+def _validate_upload(file: UploadFile, title: str | None) -> tuple[str, str, int]:
     name = Path((file.filename or "").replace(chr(92), "/")).name
-    if not name or len(name.encode()) > 255 or Path(name).suffix.lower() not in {".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg", ".docx"}:
+    if not name or len(name.encode()) > 255 or Path(name).suffix.lower() not in {
+        ".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg", ".docx",
+    }:
         raise ApiError(415, "DOCUMENT_UNSUPPORTED_TYPE", "支持 TXT、Markdown、PDF、PNG、JPEG 和 DOCX")
     if file.size is None or not 0 < file.size <= LIMIT:
         raise ApiError(413, "DOCUMENT_TOO_LARGE", "文件必须非空且不超过 50 MB")
-    explicit_title = title
-    title = (title or Path(name).stem).strip()
+    display_title = (title or Path(name).stem).strip()
+    if not display_title or len(display_title) > 255:
+        raise ApiError(422, "VALIDATION_ERROR", "标题长度不符合要求")
+    return name, display_title, file.size
+
+
+def _upload_metadata(tags, effective_from, effective_to):
     tags = tags or []
-    if not title or len(title) > 255 or len(tags) > 20 or any(not isinstance(t, str) or len(t) > 32 for t in tags):
-        raise ApiError(422, "VALIDATION_ERROR", "标题或标签长度不符合要求")
-    meta = dict(title=title, tags=tags) if explicit_title else dict(tags=tags)
+    if len(tags) > 20 or any(len(tag) > 32 for tag in tags):
+        raise ApiError(422, "VALIDATION_ERROR", "标签长度或数量不符合要求")
+    metadata = {"tags": tags}
     dates = {}
     for field, raw in (("effective_from", effective_from), ("effective_to", effective_to)):
         if raw:
@@ -108,32 +114,82 @@ async def upload(db: Db, admin: Admin, file: Annotated[UploadFile, File()],
                 value = datetime.fromisoformat(raw)
                 if value.utcoffset() is None:
                     raise ValueError()
-            except ValueError:
-                raise ApiError(422, "VALIDATION_ERROR", "日期必须包含时区")
+            except ValueError as exc:
+                raise ApiError(422, "VALIDATION_ERROR", "日期必须包含时区") from exc
             dates[field] = value
-            meta[field] = value.isoformat()
+            metadata[field] = value.isoformat()
     if len(dates) == 2 and dates["effective_from"] > dates["effective_to"]:
         raise ApiError(422, "VALIDATION_ERROR", "截止日期早于生效日期")
-    key = str(uuid4())
-    path = UPLOAD_ROOT / key / name
-    path.parent.mkdir(parents=True)
+    return metadata
+
+
+async def _enqueue_uploads(db: Db, admin: Admin, files: list[UploadFile], knowledge_base_id: str,
+                           title: str | None, tags, effective_from, effective_to, *, total_limit: int):
+    kb = required(db, KnowledgeBase, knowledge_base_id, "KNOWLEDGE_BASE_NOT_FOUND")
+    kb_id = kb.id
+    prepared = [_validate_upload(file, title) for file in files]
+    if sum(size for _, _, size in prepared) > total_limit:
+        raise ApiError(413, "DOCUMENT_TOO_LARGE", "批量上传的文件内容合计不得超过 48 MiB")
+    metadata = _upload_metadata(tags, effective_from, effective_to)
+    paths = []
+    items = []
     try:
-        with path.open("xb") as out:
-            while block := await file.read(1024 * 1024):
-                out.write(block)
-        doc_id = hashlib.sha256(f"{kb.id}:uploads/{key}/{name}".encode()).hexdigest()[:32]
-        task = ImportTask(id=key, document_id=doc_id, knowledge_base_id=kb.id, file_name=name, size=file.size,
-                          metadata_json=meta, created_by=admin.id, state="queued", queued_at=now(), attempt=1)
-        db.add(task)
+        for file, (name, display_title, size) in zip(files, prepared, strict=True):
+            key = str(uuid4())
+            path = UPLOAD_ROOT / key / name
+            path.parent.mkdir(parents=True)
+            paths.append(path)
+            with path.open("xb") as out:
+                while block := await file.read(1024 * 1024):
+                    out.write(block)
+            doc_id = hashlib.sha256(f"{kb_id}:uploads/{key}/{name}".encode()).hexdigest()[:32]
+            task_metadata = dict(metadata, title=display_title) if title else dict(metadata)
+            task = ImportTask(id=key, document_id=doc_id, knowledge_base_id=kb_id, file_name=name, size=size,
+                              metadata_json=task_metadata, created_by=admin.id, state="queued", queued_at=now(), attempt=1)
+            db.add(task)
+            timestamp = utc(task.queued_at)
+            items.append(dict(
+                document=dict(id=doc_id, knowledge_base_id=kb_id, title=display_title, file_name=name,
+                              file_size=size, page_count=0, source_url=None, tags=metadata["tags"],
+                              version_count=0, current_version=None, created_at=timestamp, updated_at=timestamp),
+                ingestion_task=task_view(db, task),
+            ))
         db.commit()
-    except Exception:
-        path.unlink(missing_ok=True)
+    except BaseException:
+        db.rollback()
+        for path in reversed(paths):
+            try:
+                path.unlink(missing_ok=True)
+                path.parent.rmdir()
+            except OSError as exc:
+                logger.warning("上传暂存清理失败 %s %s", path.parent.name, type(exc).__name__)
         raise
-    response = dict(document=dict(id=doc_id, knowledge_base_id=kb.id, title=title, file_name=name, file_size=file.size,
-                                  page_count=0, source_url=None, tags=tags, version_count=0, current_version=None,
-                                  created_at=utc(task.queued_at), updated_at=utc(task.queued_at)), ingestion_task=task_view(db, task))
-    executor.submit(run_import, key)
-    return response
+    for item in items:
+        executor.submit(run_import, item["ingestion_task"]["id"])
+    return items
+
+
+@router.post("/documents", status_code=202, response_model=Upload)
+async def upload(db: Db, admin: Admin, file: Annotated[UploadFile, File()],
+                 knowledge_base_id: Annotated[str, Form()], title: Annotated[str | None, Form()] = None,
+                 tags: Annotated[list[str] | None, Form()] = None,
+                 effective_from: Annotated[str | None, Form()] = None, effective_to: Annotated[str | None, Form()] = None):
+    items = await _enqueue_uploads(
+        db, admin, [file], knowledge_base_id, title, tags, effective_from, effective_to, total_limit=LIMIT,
+    )
+    return items[0]
+
+
+@router.post("/documents/batch", status_code=202, response_model=BatchUpload)
+async def upload_batch(db: Db, admin: Admin, knowledge_base_id: Annotated[str, Form()],
+                       files: Annotated[list[UploadFile], File(min_length=1, max_length=BATCH_MAX_FILES)],
+                       tags: Annotated[list[str] | None, Form()] = None,
+                       effective_from: Annotated[str | None, Form()] = None,
+                       effective_to: Annotated[str | None, Form()] = None):
+    items = await _enqueue_uploads(
+        db, admin, files, knowledge_base_id, None, tags, effective_from, effective_to, total_limit=BATCH_LIMIT,
+    )
+    return {"items": items}
 
 
 @router.get("/ingestion-tasks", response_model=Page[Task])
