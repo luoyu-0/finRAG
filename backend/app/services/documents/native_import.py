@@ -11,13 +11,13 @@ from xml.etree import ElementTree
 from zipfile import ZipFile
 
 from app.services.documents.layout import (
+    PageText,
     TextLine,
-    block_overlaps_table,
     is_noise_line,
     join_lines,
+    line_inside_table,
     margin_noise,
     merge_across_pages,
-    paragraphs_from_blocks,
     paragraphs_from_lines,
     table_rows_to_text,
 )
@@ -26,8 +26,13 @@ from app.services.ocr.ports import OCRProvider, OCRResult
 
 STRUCTURE_RE = re.compile(r"第[零〇一二三四五六七八九十百千万0-9]+[章节条]")
 HEADING_RE = re.compile(r"第[零〇一二三四五六七八九十百千万0-9]+[章节][^\n。！？；;：:《》“”]{0,80}\Z")
-# 不继承上一页条号的结构行：章、节、附件、表格标题。
-NON_ARTICLE_START_RE = re.compile(r"^(?:第[零〇一二三四五六七八九十百千万0-9]+[章节]|附[件录]|表\s*\d)")
+# 附件、附录及表格标题只在行首作为结构边界。
+OTHER_HEADING = (
+    r"(?:附[件录](?=[ \t\n一二三四五六七八九十甲乙丙丁戊己庚辛壬癸\d：:（(]|$"
+    r"|[A-ZＡ-Ｚ]+(?=[ \t\n.．、：:（(]|$))|表[ \t]*\d+)"
+)
+PDF_STRUCTURE_RE = re.compile(rf"{STRUCTURE_RE.pattern}|^[ \t]*{OTHER_HEADING}", re.MULTILINE)
+PDF_STRUCTURAL_LINE_RE = re.compile(rf"^(?:{STRUCTURE_RE.pattern}|{OTHER_HEADING})")
 CHUNK_SIZE = 500
 OVERLAP = 50
 MIN_BREAK = CHUNK_SIZE // 2
@@ -49,10 +54,11 @@ class ParsedDocument:
     warnings: tuple[str, ...]
 
 
-def _structural_sections(text: str) -> list[tuple[str, str | None]]:
-    """在章、节、条处断开，并保留条号供引用定位。"""
+def _structural_sections(text: str, *, paged: bool = False) -> list[tuple[str, str | None]]:
+    """在结构标记处断开，并保留条号供引用定位。"""
     markers = []
-    for match in STRUCTURE_RE.finditer(text):
+    pattern = PDF_STRUCTURE_RE if paged else STRUCTURE_RE
+    for match in pattern.finditer(text):
         previous = match.start() - 1
         while previous >= 0 and text[previous].isspace() and text[previous] != "\n":
             previous -= 1
@@ -88,7 +94,7 @@ def infer_single_article(text: str) -> str | None:
     return next(iter(articles))
 
 
-def _chunk_sections(section: str) -> list[str]:
+def _chunk_sections(section: str) -> list[tuple[int, str]]:
     """优先在段落、表格行和标点处截断，超长语句最后按字符硬切。"""
     boundaries = (
         [match.end() for match in re.finditer(r"\n+", section)],
@@ -106,9 +112,10 @@ def _chunk_sections(section: str) -> list[str]:
                 if index >= 0 and index >= bisect_left(tier, start + MIN_BREAK):
                     end = tier[index]
                     break
-        text = section[start:end].strip()
+        fragment = section[start:end]
+        text = fragment.lstrip()
         if text:
-            chunks.append(text)
+            chunks.append((end - len(text), text.rstrip()))
         if end == len(section):
             break
         start = end - OVERLAP
@@ -130,8 +137,9 @@ def _page_text_blocks(page) -> tuple[list[tuple[tuple[float, float, float, float
             text = "".join(span.get("text", "") for span in line.get("spans", [])).strip()
             if not text:
                 continue
-            x0, y0, _x1, y1 = line["bbox"]
-            item = TextLine(text, y0 / height, y1 / height, x0 / width)
+            bbox = tuple(line["bbox"])
+            x0, y0, _x1, y1 = bbox
+            item = TextLine(text, y0 / height, y1 / height, x0 / width, bbox=bbox)
             lines.append(item)
             all_lines.append(item)
         if lines:
@@ -188,7 +196,7 @@ def _run_ocr(ocr: OCRProvider, image_path: Path) -> OCRResult:
     return OCRResult(text=text, lines=_ocr_lines(text))
 
 
-def _parse_pdf(path: Path, ocr: OCRProvider | None, warnings: list[str]) -> tuple[list[tuple[int, str]], int]:
+def _parse_pdf(path: Path, ocr: OCRProvider | None, warnings: list[str]) -> tuple[list[PageText], int]:
     import pymupdf
 
     raw_pages = []
@@ -236,9 +244,8 @@ def _parse_pdf(path: Path, ocr: OCRProvider | None, warnings: list[str]) -> tupl
         else:
             paragraphs = paragraphs_from_lines(page["lines"], noise)
         if paragraphs:
-            pages.append((page["number"], paragraphs))
-    merged = merge_across_pages(pages)
-    return [(page_number, "\n\n".join(paragraphs)) for page_number, paragraphs in merged], len(raw_pages)
+            pages.append((page["number"], [_normalize_text(paragraph) for paragraph in paragraphs]))
+    return merge_across_pages(pages), len(raw_pages)
 
 
 def _warn_ocr_quality(index: int, content: str, result: OCRResult, warnings: list[str]) -> None:
@@ -257,42 +264,52 @@ def _page_paragraphs(
     table_bboxes = [bbox for bbox, _ in tables]
     items = []
     for bbox, lines in blocks:
-        if block_overlaps_table(bbox, table_bboxes):
-            continue
-        text = join_lines([line.text for line in lines if not is_noise_line(line, noise)])
-        if text:
-            items.append((bbox[1], bbox[0], text))
+        kept_lines = [
+            line for line in lines
+            if not is_noise_line(line, noise)
+            and not (table_bboxes and line.bbox and line_inside_table(line.bbox, table_bboxes))
+        ]
+        groups: list[list[str]] = []
+        for line in kept_lines:
+            if not groups or PDF_STRUCTURAL_LINE_RE.match(line.text):
+                groups.append([])
+            groups[-1].append(line.text)
+        if groups:
+            first_bbox = kept_lines[0].bbox or bbox
+            items.append((first_bbox[1], first_bbox[0], "\n".join(join_lines(group) for group in groups)))
     for bbox, text in tables:
         items.append((bbox[1], bbox[0], text))
     items.sort(key=lambda item: (item[0], item[1]))
     return [text for _, _, text in items]
 
 
-def _chunks_from_pages(
-    pages: list[tuple[int | None, str]],
-    warnings: list[str],
-) -> list[ParsedChunk]:
-    """按页切块，并把跨页续写的条号继承到下一页。"""
+def _normalize_text(content: str) -> str:
+    normalized = re.sub(r"[ \t]+", " ", content.replace("\r\n", "\n"))
+    return re.sub(r"\n{3,}", "\n\n", normalized).strip()
+
+
+def _chunks_from_pages(pages: list[PageText]) -> list[ParsedChunk]:
+    """按分块的首个正文字符定位原页，只在连续页之间继承条号。"""
     chunks: list[ParsedChunk] = []
     last_article: str | None = None
-    for page_number, content in pages:
-        normalized = re.sub(r"[ \t]+", " ", content.replace("\r\n", "\n"))
-        normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
-        if not normalized:
-            continue
-        for section, article in _structural_sections(normalized):
-            if article is not None:
-                last_article = article
-            elif NON_ARTICLE_START_RE.match(section.strip()):
-                # 新章、附件或表格标题会中断上一页条号的延续。
+    previous_page: int | None = None
+    for page in pages:
+        offsets = [offset for offset, _ in page.page_starts]
+        if offsets:
+            if previous_page is None or page.page_starts[0][1] not in (previous_page, previous_page + 1):
                 last_article = None
-            elif page_number is not None and last_article is not None:
-                # PDF 换页时正文没有“第X条”标记，沿用上一页仍在生效的条号。
+            previous_page = page.page_starts[-1][1]
+        section_start = 0
+        for section, article in _structural_sections(page.text, paged=bool(offsets)):
+            if article is not None or PDF_STRUCTURAL_LINE_RE.match(section):
+                last_article = article
+            elif offsets:
                 article = last_article
-            chunks.extend(
-                ParsedChunk(text, page_number, article)
-                for text in _chunk_sections(section)
-            )
+            for start, text in _chunk_sections(section):
+                page_index = bisect_right(offsets, section_start + start) - 1
+                page_number = page.page_starts[page_index][1] if offsets else None
+                chunks.append(ParsedChunk(text, page_number, article))
+            section_start += len(section)
     return chunks
 
 
@@ -314,14 +331,14 @@ def parse_document(path: Path, *, ocr: OCRProvider | None = None) -> ParsedDocum
             "".join(node.text or "" for node in para.iter(ns + "t"))
             for para in root.iter(ns + "p")
         )
-        pages = [(None, content)]
+        pages = [PageText(_normalize_text(content))]
         page_count = 0
     elif suffix in {".png", ".jpg", ".jpeg"}:
         if ocr is None:
             raise ValueError("图片需要启用 OCR 才能导入")
         result = _run_ocr(ocr, path)
         content = result.text or ""
-        pages = [(1, content)]
+        pages = [PageText(_normalize_text(content), ((0, 1),))]
         page_count = 1
         warnings.append("第 1 页经 OCR 识别，需人工复核")
         _warn_ocr_quality(1, content, result, warnings)
@@ -332,12 +349,12 @@ def parse_document(path: Path, *, ocr: OCRProvider | None = None) -> ParsedDocum
         except UnicodeDecodeError:
             content = data.decode("gb18030")
             warnings.append("文本按 GB18030 编码解析")
-        pages = [(None, content)]
+        pages = [PageText(_normalize_text(content))]
         page_count = 0
     else:
         raise ValueError("仅支持 TXT、PDF、DOCX 和图片")
 
-    chunks = _chunks_from_pages(pages, warnings)
+    chunks = _chunks_from_pages(pages)
     if not chunks:
         if ocr is not None:
             failure = next((warning for warning in warnings if "OCR 失败" in warning), None)

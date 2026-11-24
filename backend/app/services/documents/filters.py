@@ -9,13 +9,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# 文件名中的财务报表特征。顺序不影响结果，命中任意一条即排除。
+# 只匹配文件名末尾的报表类型或带机构/年份的预算决算，保留引用这些词的制度。
+POLICY_NAME_RE = re.compile(r"准则|制度|办法|条例|规定|指引|指南|规范|规则|意见|通知|解读")
 FINANCIAL_STATEMENT_PATTERNS = (
-    re.compile(r"(?:部门|本级|总行本级|年度).{0,12}(?:决算|预算)"),
-    re.compile(r"\d{4}\s*年.{0,8}(?:决算|预算)"),
-    re.compile(r"(?:财务报表|决算表|预算表)"),
-    re.compile(r"(?:资产负债表|利润表|现金流量表|所有者权益变动表)"),
-    re.compile(r"审计报告"),
+    re.compile(r"(?:部门|本级|年度|\d{4}\s*年).{0,12}(?:决算|预算)(?:公开|报告)?$"),
+    re.compile(r"(?:财务报表|决算表|预算表|资产负债表|利润表|现金流量表|所有者权益变动表|审计报告)$"),
 )
 # 手工隔离目录：下划线或 excluded/quarantine 包名下的文件不参与导入。
 IGNORED_DIR_NAMES = {"excluded", "quarantine"}
@@ -23,7 +21,9 @@ IGNORED_DIR_NAMES = {"excluded", "quarantine"}
 
 def exclusion_reason(relative_path: str) -> str | None:
     """返回排除原因；None 表示允许导入。"""
-    name = Path(relative_path).stem
+    name = Path(relative_path).stem.strip()
+    if POLICY_NAME_RE.search(name):
+        return None
     for pattern in FINANCIAL_STATEMENT_PATTERNS:
         match = pattern.search(name)
         if match:

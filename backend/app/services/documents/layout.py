@@ -28,7 +28,7 @@ STRUCTURAL_START_RE = re.compile(
     r"|\d+[.、]|[（(]\d+[）)]|附[件录]|表\s*\d|注\s*[:：]|数据来源|目\s*录)"
 )
 SENTENCE_END = "。！？!?；;"
-PAUSE_END = "，、,：:"
+PAUSE_END = "，、,"
 TEXT_TAIL_RE = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]$")
 
 
@@ -41,6 +41,7 @@ class TextLine:
     bottom: float
     left: float = 0.0
     confidence: float | None = None
+    bbox: tuple[float, float, float, float] | None = None
 
     @property
     def margin(self) -> bool:
@@ -124,7 +125,7 @@ def should_join_paragraph(previous: str, following: str) -> bool:
     if is_page_number(following) or STRUCTURAL_START_RE.match(following):
         return False
     # 表格行与正文段落不应跨页拼接。
-    if " | " in previous:
+    if " | " in previous or " | " in following:
         return False
     if previous[-1] in SENTENCE_END:
         return False
@@ -136,6 +137,8 @@ def should_join_paragraph(previous: str, following: str) -> bool:
     # 标题、图表标题通常较短，宁可拆开。
     if len(previous) < 8:
         return False
+    if previous.endswith("-") and following[0].isascii() and following[0].isalpha():
+        return True
     return bool(TEXT_TAIL_RE.search(previous))
 
 
@@ -175,17 +178,40 @@ def paragraphs_from_lines(lines: list[TextLine], noise: set[str]) -> list[str]:
     return merged
 
 
-def merge_across_pages(pages: list[tuple[int, list[str]]]) -> list[tuple[int, list[str]]]:
-    """把上一页末段与下一页首段拼成一个自然段，归属起始页。"""
-    merged: list[list] = []
+@dataclass(frozen=True)
+class PageText:
+    text: str
+    # 按字符偏移记录物理页起点；无页码的格式使用空元组。
+    page_starts: tuple[tuple[int, int], ...] = ()
+
+
+def merge_across_pages(pages: list[tuple[int, list[str]]]) -> list[PageText]:
+    """拼接相邻物理页的续段，并保留续文在拼接文本中的页边界。"""
+    merged: list[PageText] = []
+    last_paragraph = ""
     for page_number, paragraphs in pages:
-        paragraphs = [paragraph for paragraph in paragraphs if paragraph.strip()]
-        if merged and paragraphs and should_join_paragraph(merged[-1][1][-1], paragraphs[0]):
-            merged[-1][1][-1] = join_lines([merged[-1][1][-1], paragraphs[0]])
+        paragraphs = [paragraph.strip() for paragraph in paragraphs if paragraph.strip()]
+        if not paragraphs:
+            continue
+        if (
+            merged
+            and merged[-1].page_starts[-1][1] + 1 == page_number
+            and should_join_paragraph(last_paragraph, paragraphs[0])
+        ):
+            previous = merged[-1]
+            prefix_length = len(previous.text) - len(last_paragraph)
+            joined = join_lines([last_paragraph, paragraphs[0]])
+            page_start = prefix_length + len(joined) - len(paragraphs[0])
+            merged[-1] = PageText(
+                previous.text[:prefix_length] + joined,
+                (*previous.page_starts, (page_start, page_number)),
+            )
+            last_paragraph = joined
             paragraphs = paragraphs[1:]
         if paragraphs:
-            merged.append([page_number, paragraphs])
-    return [(page_number, paragraphs) for page_number, paragraphs in merged]
+            merged.append(PageText("\n\n".join(paragraphs), ((0, page_number),)))
+            last_paragraph = paragraphs[-1]
+    return merged
 
 
 def table_rows_to_text(rows: list[list[str | None]]) -> str:
@@ -217,16 +243,11 @@ def table_rows_to_text(rows: list[list[str | None]]) -> str:
     return "\n".join(lines)
 
 
-def block_overlaps_table(
-    block_bbox: tuple[float, float, float, float],
+def line_inside_table(
+    bbox: tuple[float, float, float, float],
     table_bboxes: list[tuple[float, float, float, float]],
-    threshold: float = 0.35,
 ) -> bool:
-    """文本块大部分落在表格内时不再重复计入正文。"""
-    block_area = max((block_bbox[2] - block_bbox[0]) * (block_bbox[3] - block_bbox[1]), 1.0)
-    for table_bbox in table_bboxes:
-        width = max(0.0, min(block_bbox[2], table_bbox[2]) - max(block_bbox[0], table_bbox[0]))
-        height = max(0.0, min(block_bbox[3], table_bbox[3]) - max(block_bbox[1], table_bbox[1]))
-        if width * height / block_area >= threshold:
-            return True
-    return False
+    """按行中心去除已提取的表格文字，保留同块中的表格外正文。"""
+    center_x = (bbox[0] + bbox[2]) / 2
+    center_y = (bbox[1] + bbox[3]) / 2
+    return any(x0 <= center_x <= x1 and y0 <= center_y <= y1 for x0, y0, x1, y1 in table_bboxes)
