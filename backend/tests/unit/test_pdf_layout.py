@@ -90,6 +90,10 @@ class TableTests(unittest.TestCase):
         rows = [["项目", "本期\n金额", "上期"], ["收入", "100", None]]
         self.assertEqual(table_rows_to_text(rows), "项目 | 本期 金额 | 上期\n收入 | 100")
 
+    def test_all_empty_columns_are_dropped(self):
+        rows = [["Item", "", "Current", "", "Prior"], ["Revenue", "", "100", "", "90"]]
+        self.assertEqual(table_rows_to_text(rows), "Item | Current | Prior\nRevenue | 100 | 90")
+
     def test_block_inside_table_is_detected(self):
         table = [(100.0, 100.0, 500.0, 300.0)]
         self.assertTrue(block_overlaps_table((120.0, 120.0, 200.0, 160.0), table))

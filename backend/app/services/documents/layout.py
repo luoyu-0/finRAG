@@ -189,13 +189,27 @@ def merge_across_pages(pages: list[tuple[int, list[str]]]) -> list[tuple[int, li
 
 
 def table_rows_to_text(rows: list[list[str | None]]) -> str:
-    """把 PyMuPDF 表格行转成便于分块的竖线分隔文本。"""
-    lines = []
-    for row in rows:
-        cells = [
+    """把 PyMuPDF 表格行转成便于分块的竖线分隔文本。
+
+    不同 PyMuPDF 版本对同一条竖线可能识别出额外空列（如 ``A | | B``），
+    这里统一删除整列都为空的伪列，再按行输出。
+    """
+    normalized = [
+        [
             re.sub(r"\s*\n\s*", " ", str(cell)).strip() if cell is not None else ""
             for cell in row
         ]
+        for row in rows
+    ]
+    if not normalized:
+        return ""
+    width = max(len(row) for row in normalized)
+    for row in normalized:
+        row.extend([""] * (width - len(row)))
+    keep = [index for index in range(width) if any(row[index] for row in normalized)]
+    lines = []
+    for row in normalized:
+        cells = [row[index] for index in keep]
         while cells and not cells[-1]:
             cells.pop()
         if any(cells):
