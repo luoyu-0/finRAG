@@ -8,10 +8,13 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app.api.v1 import ingestion
+from app.api.v1.page_common import now
 from app.core import database
 from app.domain.rag import Citation, EvidenceSupport, EvidenceSupportLevel, RagAnswer, SourceReference
 from app.repositories.document_deduplication import duplicate_groups, remove_document_index
 from app.repositories.document_models import ChunkRecord, DocumentRecord
+from app.repositories.page_models import ImportTask
 from app.workers import import_documents
 from app.workers.evaluate_qa import _evaluate, _validate_cases
 
@@ -197,3 +200,58 @@ def test_evaluation_resolves_duplicate_filename_by_content(importer):
     (root / "测试集文件名.txt").write_text("原文已经改变", encoding="utf-8")
     with pytest.raises(ValueError, match="原文哈希"):
         _validate_cases([case], root.parent.parent, "default")
+
+
+def test_upload_worker_first_attempt_deduplicates_and_retries_independently(importer, monkeypatch):
+    _, sessions, vectors, embedding, root = importer
+    monkeypatch.setattr(ingestion, "UPLOAD_ROOT", root)
+    monkeypatch.setattr(ingestion, "BgeEmbeddingProvider", lambda: embedding)
+    monkeypatch.setattr(ingestion, "repository", lambda _: vectors)
+    monkeypatch.setattr(vectors, "ensure_collection", lambda: None, raising=False)
+
+    files = {
+        "first": "第一条 银行应当审核开户资料。",
+        "duplicate": "第一条 银行应当审核开户资料。",
+        "retry": "第二条 银行应当留存审核记录。",
+    }
+    with sessions() as db:
+        for key, content in files.items():
+            path = root / key / "rules.txt"
+            path.parent.mkdir()
+            data = content.encode()
+            path.write_bytes(data)
+            db.add(ImportTask(id=key, document_id=key, knowledge_base_id="default",
+                              file_name=path.name, size=len(data), metadata_json={}, created_by="admin",
+                              state="queued", attempt=1, queued_at=now()))
+        db.commit()
+
+    ingestion.run_import("first")
+    ingestion.run_import("duplicate")
+    embedding.fail = True
+    ingestion.run_import("retry")
+
+    with sessions() as db:
+        first = db.get(ImportTask, "first")
+        duplicate = db.get(ImportTask, "duplicate")
+        failed = db.get(ImportTask, "retry")
+        assert (first.state, first.attempt, first.error) == ("succeeded", 1, None)
+        assert duplicate.state == "succeeded" and duplicate.document_id == first.document_id
+        assert duplicate.warnings
+        assert (failed.state, failed.attempt) == ("failed", 1)
+        assert failed.error and failed.finished_at
+        assert db.get(DocumentRecord, first.document_id) is not None
+        assert len(db.scalars(select(DocumentRecord)).all()) == len(vectors.rows) == 1
+
+        # 复用真实重试入口，队列由用例显式驱动以避免轮询和竞态。
+        submitted = []
+        monkeypatch.setattr(ingestion.executor, "submit", lambda _, key: submitted.append(key))
+        assert ingestion.retry("retry", db, None)["state"] == "queued"
+        assert submitted == ["retry"]
+
+    embedding.fail = False
+    ingestion.run_import("retry")
+    with sessions() as db:
+        retried = db.get(ImportTask, "retry")
+        assert (retried.state, retried.attempt, retried.error) == ("succeeded", 2, None)
+        assert db.get(DocumentRecord, retried.document_id) is not None
+        assert len(db.scalars(select(DocumentRecord)).all()) == len(vectors.rows) == 2
