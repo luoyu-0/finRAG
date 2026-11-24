@@ -620,13 +620,12 @@ export function demoUploadDocument(payload: {
   fileName: string;
   fileSize: number;
   knowledgeBaseId: string;
-  title?: string;
 }): Promise<{ document: DocumentSummary; task: IngestionTask }> {
   const seq = documents.length + 1;
   const document: DocumentSummary = {
     id: `doc_${String(seq).padStart(3, "0")}`,
     knowledge_base_id: payload.knowledgeBaseId,
-    title: payload.title?.trim() ? payload.title.trim() : payload.fileName,
+    title: payload.fileName.replace(/\.[^.]+$/, ""),
     file_name: payload.fileName,
     file_size: payload.fileSize,
     page_count: Math.max(1, Math.round(payload.fileSize / 120_000)),

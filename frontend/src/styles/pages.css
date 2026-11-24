@@ -325,13 +325,13 @@
 }
 
 @media (max-width: 520px) {
-  .upload--batch > .card__header {
+  .upload-card > .card__header {
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-2);
   }
 
-  .upload--batch .upload__actions {
+  .upload-card .upload__actions {
     flex-wrap: wrap;
   }
 }
