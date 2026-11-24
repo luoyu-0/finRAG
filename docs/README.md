@@ -5,7 +5,7 @@
 | 启停、环境变量、命令行导入 | [仓库 README](../README.md) |
 | 前后端联调 | [系统接口](api/系统接口.md)、[流式问答](api/流式问答.md) |
 | 服务、存储与业务链路 | [系统架构](architecture/系统架构.md)、[术语表](../GLOSSARY.md)、[架构决策](adr/README.md) |
-| 数据与 OCR | [批量导入验证](testing/现有数据批量导入与问答回归.md)、[OCR 联调](testing/离线导入与OCR联调.md)、[内容去重](testing/文档内容去重.md) |
+| 数据与 OCR | [解析与清洗](testing/文档解析与数据清洗.md)、[批量导入验证](testing/现有数据批量导入与问答回归.md)、[OCR 联调](testing/离线导入与OCR联调.md)、[内容去重](testing/文档内容去重.md) |
 | 回归与评测 | [关键场景测试](testing/关键场景测试.md)、[后端测试](testing/后端单元测试与覆盖率.md)、[排序对照](testing/RAG融合排序与上下文对照.md)、[流式延迟](testing/RAG效果与首字延迟优化.md) |
 | 团队协作 | [开发分工](开发分工.md)、[协作规范](../AGENTS.md) |
 

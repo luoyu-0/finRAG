@@ -4,10 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pymupdf
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from app.services.documents.native_import import _chunk_sections, _structural_sections, infer_single_article, parse_document
+from app.services.documents.native_import import _chunk_sections, _chunks_from_pages, _structural_sections, infer_single_article, parse_document
+from app.services.ocr.ports import OCRLine, OCRResult
 
 
 class NativeImportTests(unittest.TestCase):
@@ -140,3 +142,90 @@ class NativeImportTests(unittest.TestCase):
         self.assertEqual(parsed.chunks[0].page_number, 1)
         self.assertEqual(parsed.chunks[0].article_number, "第一条")
         self.assertIn("OCR", parsed.warnings[0])
+
+    def test_pdf_cleans_repeated_margins_and_joins_cross_page_sentence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "跨页制度.pdf"
+            with pymupdf.open() as document:
+                document.new_page(width=595, height=842)
+                document.new_page(width=595, height=842)
+                for number in (1, 2):
+                    page = document.load_page(number - 1)
+                    page.insert_text((50, 30), "INTERNAL USE ONLY", fontsize=9)
+                    page.insert_text((280, 820), f"- {number} -", fontsize=9)
+                document.load_page(0).insert_text((50, 120), "This policy applies to", fontsize=10)
+                document.load_page(1).insert_text((50, 120), "all financial institutions.", fontsize=10)
+                document.save(path)
+
+            parsed = parse_document(path)
+
+        text = "\n".join(chunk.text for chunk in parsed.chunks)
+        self.assertEqual(parsed.page_count, 2)
+        self.assertNotIn("INTERNAL USE ONLY", text)
+        self.assertNotIn("- 1 -", text)
+        self.assertIn("This policy applies to all financial institutions.", text)
+
+    def test_pdf_table_rows_are_parsed_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "表格制度.pdf"
+            with pymupdf.open() as document:
+                page = document.new_page(width=595, height=842)
+                xs = [50, 200, 350, 500]
+                ys = [100, 130, 160, 190]
+                for y in ys:
+                    page.draw_line((xs[0], y), (xs[-1], y), color=(0, 0, 0), width=1)
+                for x in xs:
+                    page.draw_line((x, ys[0]), (x, ys[-1]), color=(0, 0, 0), width=1)
+                cells = [
+                    ["Item", "Current", "Prior"],
+                    ["Revenue", "100", "90"],
+                    ["Profit", "20", "18"],
+                ]
+                for row, values in enumerate(cells):
+                    for column, value in enumerate(values):
+                        page.insert_text((xs[column] + 5, ys[row] + 20), value, fontsize=10)
+                document.save(path)
+
+            parsed = parse_document(path)
+
+        text = "\n".join(chunk.text for chunk in parsed.chunks)
+        self.assertIn("Item | Current | Prior", text)
+        self.assertIn("Revenue | 100 | 90", text)
+        self.assertEqual(text.count("Revenue"), 1)
+
+    def test_article_number_continues_across_page_without_marker(self):
+        chunks = _chunks_from_pages(
+            [(1, "第五条 机构应当保存记录。"), (2, "机构应当定期报告。")],
+            [],
+        )
+        self.assertEqual([chunk.article_number for chunk in chunks], ["第五条", "第五条"])
+        self.assertEqual([chunk.page_number for chunk in chunks], [1, 2])
+
+    def test_chapter_heading_stops_article_inheritance(self):
+        chunks = _chunks_from_pages(
+            [(1, "第五条 机构应当保存记录。"), (2, "第二章 报告要求"), (3, "机构应当定期报告。")],
+            [],
+        )
+        self.assertEqual([chunk.article_number for chunk in chunks], ["第五条", None, None])
+
+    def test_low_confidence_ocr_page_adds_review_warning(self):
+        class LowConfidenceOCR:
+            def recognize(self, image_path: Path) -> str:
+                return "第一条 扫描页内容。"
+
+            def recognize_result(self, image_path: Path) -> OCRResult:
+                return OCRResult(
+                    text="第一条 扫描页内容。",
+                    lines=(OCRLine("第一条 扫描页内容。", 0.3, 0.34, 0.1, 0.42),),
+                    mean_confidence=0.42,
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "低置信度.pdf"
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            with path.open("wb") as output:
+                writer.write(output)
+            parsed = parse_document(path, ocr=LowConfidenceOCR())
+
+        self.assertTrue(any("置信度" in warning for warning in parsed.warnings))

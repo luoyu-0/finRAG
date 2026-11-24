@@ -34,6 +34,15 @@ docker compose run --rm --no-deps backend python -m app.workers.import_documents
 
 默认导入到 `default` 知识库。导入其他知识库时，在命令末尾加上 `--knowledge-base-id <ID>`。元数据、重复文件和 OCR 重建规则见 [批量导入](docs/testing/现有数据批量导入与问答回归.md)、[内容去重](docs/testing/文档内容去重.md)和 [OCR 联调](docs/testing/离线导入与OCR联调.md)。
 
+离线导入器默认排除部门决算、部门预算、财务报表等机构内部财务材料；放入 `data/raw/_excluded/` 的文件也会自动跳过。确需保留时可加 `--include-excluded`。已入库的旧索引先预览再清理：
+
+```powershell
+docker compose run --rm --no-deps backend python -m app.workers.prune_off_topic
+docker compose run --rm --no-deps backend python -m app.workers.prune_off_topic --apply
+```
+
+PDF 解析会清理重复页眉页脚和页码、把跨页断开的自然段拼回去，并把文字型表格转成竖线分隔的行。解析规则改变后，已有文档需加 `--rebuild` 重建索引；扫描件中的表格目前仍只按 OCR 文本处理，不还原行列结构。
+
 ## 开发与排查
 
 - `frontend/` 使用 React 和 TypeScript，在该目录运行 `npm ci`、`npm run dev`。后端在 `backend/`，使用 FastAPI、LangChain、MySQL、Milvus 和 DeepSeek。部署配置位于 `compose.yaml` 和 `infra/`。

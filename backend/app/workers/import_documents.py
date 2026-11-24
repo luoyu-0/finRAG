@@ -17,6 +17,7 @@ from app.repositories.document_deduplication import (
 )
 from app.repositories.document_models import ChunkRecord, DocumentRecord
 from app.repositories.milvus_chunks import MilvusChunkRepository
+from app.services.documents.filters import exclusion_reason, is_ignored_path
 from app.services.documents.native_import import parse_document
 from app.services.ocr.ports import OCRProvider
 from app.services.rag.embedding import BgeEmbeddingProvider
@@ -62,7 +63,8 @@ def _import_file(
         raise ValueError("文件超过 50 MB 上限")
     file_hash = hashlib.sha256(raw).hexdigest()
     document_id = hashlib.sha256(f"{knowledge_base_id}:{relative_path}".encode()).hexdigest()[:32]
-    version_id = hashlib.sha256(f"native-v1:{file_hash}".encode()).hexdigest()[:32]
+    # 解析规则变化时提升版本，--rebuild 才会用新规则替换旧索引。
+    version_id = hashlib.sha256(f"native-v2:{file_hash}".encode()).hexdigest()[:32]
     status = metadata.get("policy_status", "active")
     if status not in ("active", "inactive", "unknown"):
         raise ValueError("policy_status 必须为 active、inactive 或 unknown")
@@ -151,6 +153,11 @@ def main() -> None:
     parser.add_argument("--ocr", action="store_true", help="对无文字层的 PDF 页面使用 PaddleOCR")
     parser.add_argument("--rebuild", action="store_true", help="重建保留路径的现有索引；不同文件名的重复副本仍跳过")
     parser.add_argument("--paths-file", type=Path, help="只导入文件中列出的相对路径，每行一个")
+    parser.add_argument(
+        "--include-excluded",
+        action="store_true",
+        help="强制导入默认排除的财务报表类文档（部门决算、预算等）",
+    )
     args = parser.parse_args()
     root = args.root.resolve()
     if not root.is_dir():
@@ -162,6 +169,7 @@ def main() -> None:
     files = sorted(
         path for path in root.rglob("*")
         if path.is_file() and path.suffix.lower() in (".txt", ".pdf")
+        and not is_ignored_path(path.relative_to(root).as_posix())
     )
     if args.paths_file:
         requested = [
@@ -176,6 +184,9 @@ def main() -> None:
                 or path.suffix.lower() not in (".txt", ".pdf")
             ):
                 parser.error(f"无效的导入路径：{relative}")
+            if is_ignored_path(relative):
+                print(f"已忽略隔离目录中的文件 {relative}")
+                continue
             files.append(path)
         files = sorted(set(files))
     if not files:
@@ -194,8 +205,13 @@ def main() -> None:
     )
     repository.ensure_collection()
     failed = 0
+    excluded = 0
     for path in files:
         relative = path.relative_to(root).as_posix()
+        if not args.include_excluded and (reason := exclusion_reason(relative)):
+            print(f"已排除 {relative}：{reason}")
+            excluded += 1
+            continue
         try:
             count, warnings = import_file(
                 path, relative, args.knowledge_base_id, metadata.get(relative, {}),
@@ -213,6 +229,8 @@ def main() -> None:
         except Exception as exc:
             failed += 1
             print(f"导入失败 {relative}：{exc}")
+    if excluded:
+        print(f"已排除 {excluded} 份财务报表类文档；如需保留请加 --include-excluded")
     if failed:
         raise SystemExit(f"{failed} 个文件导入失败")
 
