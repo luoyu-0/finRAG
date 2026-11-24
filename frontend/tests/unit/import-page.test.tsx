@@ -49,6 +49,49 @@ describe("文档导入页", () => {
     expect(await screen.findByText(/正在后台处理/)).toBeInTheDocument();
   });
 
+  it("从单文件入口切换后可提交多份文件并保留各自任务", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("金融监管制度库");
+    await user.click(screen.getByRole("button", { name: "批量导入" }));
+    expect(screen.queryByText("标题（可选）")).not.toBeInTheDocument();
+
+    await user.upload(screen.getByLabelText("选择多个文件"), [
+      new File(["正文"], "批量样例甲.txt", { type: "text/plain" }),
+      new File(["# 正文"], "批量样例乙.md", { type: "application/octet-stream" }),
+    ]);
+    await user.click(screen.getByRole("button", { name: "提交批量导入" }));
+
+    expect(await screen.findByText(/已提交 2 个文件/)).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "批量样例甲.txt" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "批量样例乙.md" })).toBeVisible();
+  });
+
+  it("批量超出数量或总大小上限时阻止提交", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("金融监管制度库");
+    await user.click(screen.getByRole("button", { name: "批量导入" }));
+    const picker = screen.getByLabelText("选择多个文件");
+    const submit = screen.getByRole("button", { name: "提交批量导入" });
+
+    await user.upload(
+      picker,
+      Array.from({ length: 21 }, (_, i) => new File(["x"], `${String(i)}.txt`)),
+    );
+    expect(screen.getByText(/每批最多选择 20 个文件/)).toBeVisible();
+    expect(submit).toBeDisabled();
+
+    const files = ["甲.txt", "乙.txt"].map((name) => {
+      const file = new File(["x"], name);
+      Object.defineProperty(file, "size", { value: 25 * 1024 * 1024 });
+      return file;
+    });
+    await user.upload(picker, files);
+    expect(screen.getByText(/文件总大小超过 48 MiB/)).toBeVisible();
+    expect(submit).toBeDisabled();
+  });
+
   it("拒绝超过 50 MB 的文件", async () => {
     const user = userEvent.setup();
     renderPage();

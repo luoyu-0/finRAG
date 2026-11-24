@@ -674,6 +674,11 @@ export function demoListTasks(
   return simulate(paginate(filtered, query));
 }
 
+export function demoGetTask(id: string): Promise<IngestionTask> {
+  const found = tasks.find((item) => item.id === id);
+  return found ? simulate(found) : Promise.reject(new Error("INGESTION_TASK_NOT_FOUND"));
+}
+
 export function demoRetryTask(id: string): Promise<IngestionTask> {
   tasks = tasks.map((item) =>
     item.id === id
@@ -687,8 +692,7 @@ export function demoRetryTask(id: string): Promise<IngestionTask> {
         }
       : item,
   );
-  const found = tasks.find((item) => item.id === id);
-  return found ? simulate(found) : Promise.reject(new Error("INGESTION_TASK_NOT_FOUND"));
+  return demoGetTask(id);
 }
 
 /* ── 问答历史 ───────────────────────────────────────────── */

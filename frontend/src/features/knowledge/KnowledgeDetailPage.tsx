@@ -421,6 +421,14 @@ export function KnowledgeDetailPage() {
           <Link className="btn" to={`/import?kb=${knowledgeBaseId}`}>
             导入文档
           </Link>
+          {isAdmin ? (
+            <Link
+              className="btn btn--ghost"
+              to={`/import?${new URLSearchParams({ kb: knowledgeBaseId, mode: "batch" }).toString()}`}
+            >
+              批量导入
+            </Link>
+          ) : null}
         </div>
       </div>
 

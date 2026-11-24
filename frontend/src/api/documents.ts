@@ -156,6 +156,35 @@ export async function uploadDocument(
   return client.postForm<UploadDocumentResponse>("/documents", form);
 }
 
+/** 批量上传使用重复的 files 表单字段，返回与选中文件同序的任务。 */
+export async function uploadDocumentBatch(
+  client: ApiClient,
+  files: readonly File[],
+  knowledgeBaseId: string,
+): Promise<{ items: UploadDocumentResponse[] }> {
+  if (MOCK_ENABLED) {
+    const items = await Promise.all(
+      files.map((file) => uploadDocument(client, { file, knowledgeBaseId })),
+    );
+    return { items };
+  }
+
+  const form = new FormData();
+  form.append("knowledge_base_id", knowledgeBaseId);
+  for (const file of files) {
+    form.append("files", file);
+  }
+  return client.postForm<{ items: UploadDocumentResponse[] }>("/documents/batch", form);
+}
+
+export async function getTask(client: ApiClient, taskId: string): Promise<IngestionTask> {
+  if (MOCK_ENABLED) {
+    const { demoGetTask } = await import("./demo");
+    return demoGetTask(taskId);
+  }
+  return client.get<IngestionTask>(`/ingestion-tasks/${taskId}`);
+}
+
 export async function listTasks(
   client: ApiClient,
   query: ListTasksQuery = {},
