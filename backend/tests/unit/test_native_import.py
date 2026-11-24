@@ -4,10 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pymupdf
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from app.services.documents.native_import import _chunk_sections, _structural_sections, infer_single_article, parse_document
+from app.services.documents.layout import PageText
+from app.services.documents.native_import import _chunk_sections, _chunks_from_pages, _structural_sections, infer_single_article, parse_document
+from app.services.ocr.ports import OCRLine, OCRResult
 
 
 class NativeImportTests(unittest.TestCase):
@@ -59,24 +62,24 @@ class NativeImportTests(unittest.TestCase):
 
     def test_long_paragraph_uses_punctuation_then_fifty_character_overlap(self) -> None:
         sentence = "机构应当核对业务记录。"
-        chunks = _chunk_sections(sentence * 60)
+        chunks = [text for _, text in _chunk_sections(sentence * 60)]
         self.assertTrue(all(len(chunk) <= 500 for chunk in chunks))
         self.assertTrue(all(left[-50:] == right[:50] for left, right in zip(chunks, chunks[1:])))
         self.assertTrue(all(chunk.endswith("。") for chunk in chunks[:-1]))
 
     def test_unbroken_text_falls_back_to_hard_cut(self) -> None:
-        chunks = _chunk_sections("甲" * 1100)
+        chunks = [text for _, text in _chunk_sections("甲" * 1100)]
         self.assertEqual([len(chunk) for chunk in chunks], [500, 500, 200])
         self.assertTrue(all(left[-50:] == right[:50] for left, right in zip(chunks, chunks[1:])))
 
     def test_comma_is_used_when_no_paragraph_or_sentence_boundary_exists(self) -> None:
-        chunks = _chunk_sections("甲" * 320 + "，" + "乙" * 400)
+        chunks = [text for _, text in _chunk_sections("甲" * 320 + "，" + "乙" * 400)]
         self.assertEqual(len(chunks[0]), 321)
         self.assertTrue(all(len(chunk) <= 500 for chunk in chunks))
 
     def test_table_rows_are_preferred_to_hard_cut(self) -> None:
         row = "项目|数值|说明\n"
-        chunks = _chunk_sections(row * 70)
+        chunks = [text for _, text in _chunk_sections(row * 70)]
         self.assertTrue(all(len(chunk) <= 500 for chunk in chunks))
         self.assertTrue(chunks[0].endswith("说明"))
 
@@ -140,3 +143,166 @@ class NativeImportTests(unittest.TestCase):
         self.assertEqual(parsed.chunks[0].page_number, 1)
         self.assertEqual(parsed.chunks[0].article_number, "第一条")
         self.assertIn("OCR", parsed.warnings[0])
+
+    def test_pdf_cleans_repeated_margins_and_joins_cross_page_sentence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "跨页制度.pdf"
+            with pymupdf.open() as document:
+                document.new_page(width=595, height=842)
+                document.new_page(width=595, height=842)
+                for number in (1, 2):
+                    page = document.load_page(number - 1)
+                    page.insert_text((50, 30), "INTERNAL USE ONLY", fontsize=9)
+                    page.insert_text((280, 820), f"- {number} -", fontsize=9)
+                document.load_page(0).insert_text((50, 120), "This policy applies to", fontsize=10)
+                document.load_page(1).insert_text((50, 120), "all financial institutions.", fontsize=10)
+                document.save(path)
+
+            parsed = parse_document(path)
+
+        text = "\n".join(chunk.text for chunk in parsed.chunks)
+        self.assertEqual(parsed.page_count, 2)
+        self.assertNotIn("INTERNAL USE ONLY", text)
+        self.assertNotIn("- 1 -", text)
+        self.assertIn("This policy applies to all financial institutions.", text)
+
+    def test_pdf_chunks_locate_their_first_text_on_the_original_page(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "长续段.pdf"
+            with pymupdf.open() as document:
+                document.new_page(width=2500).insert_text((72, 300), "Start " + "A" * 250, fontsize=8)
+                page = document.new_page(width=2500)
+                for line in range(6):
+                    page.insert_text((72, 300 + 12 * line), "B" * 185 + ("." if line == 5 else ""), fontsize=8)
+                document.save(path)
+            parsed = parse_document(path)
+
+        self.assertEqual([chunk.page_number for chunk in parsed.chunks], [1, 2, 2])
+        self.assertTrue(all("A" not in chunk.text for chunk in parsed.chunks[1:]))
+
+    def test_pdf_does_not_join_across_an_unreadable_page(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "缺页.pdf"
+            with pymupdf.open() as document:
+                document.new_page().insert_text((72, 300), "This is a complete heading")
+                document.new_page()
+                document.new_page().insert_text((72, 300), "Another part of the document.")
+                document.save(path)
+            parsed = parse_document(path)
+
+        self.assertEqual([chunk.page_number for chunk in parsed.chunks], [1, 3])
+        self.assertTrue(any("第 2 页无可提取文字" in warning for warning in parsed.warnings))
+
+    def test_attachment_after_continued_text_stops_article_inheritance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "附件制度.pdf"
+            with pymupdf.open() as document:
+                document.new_page().insert_text((72, 300), "第五条 机构应当保存记录。", fontname="china-s")
+                document.new_page().insert_text(
+                    (72, 300), "机构应当定期报告。\n附件一\n其他主题内容。", fontname="china-s",
+                )
+                document.new_page().insert_text((72, 300), "本说明仅适用于境内银行。", fontname="china-s")
+                document.save(path)
+            parsed = parse_document(path)
+
+        self.assertEqual([chunk.article_number for chunk in parsed.chunks], ["第五条", "第五条", None, None])
+
+    def test_pdf_table_rows_are_parsed_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "表格制度.pdf"
+            with pymupdf.open() as document:
+                page = document.new_page(width=595, height=842)
+                xs = [50, 200, 350, 500]
+                ys = [100, 130, 160, 190]
+                for y in ys:
+                    page.draw_line((xs[0], y), (xs[-1], y), color=(0, 0, 0), width=1)
+                for x in xs:
+                    page.draw_line((x, ys[0]), (x, ys[-1]), color=(0, 0, 0), width=1)
+                cells = [
+                    ["Item", "Current", "Prior"],
+                    ["Revenue", "100", "90"],
+                    ["Profit", "20", "18"],
+                ]
+                for row, values in enumerate(cells):
+                    for column, value in enumerate(values):
+                        page.insert_text((xs[column] + 5, ys[row] + 20), value, fontsize=10)
+                document.save(path)
+
+            parsed = parse_document(path)
+
+        text = "\n".join(chunk.text for chunk in parsed.chunks)
+        self.assertIn("Item | Current | Prior", text)
+        self.assertIn("Revenue | 100 | 90", text)
+        self.assertEqual(text.count("Revenue"), 1)
+
+    def test_pdf_table_keeps_prose_from_the_same_text_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "表格邻接正文.pdf"
+            with pymupdf.open() as document:
+                page = document.new_page()
+                for x in (50, 200, 350):
+                    page.draw_line((x, 100), (x, 140))
+                for y in (100, 120, 140):
+                    page.draw_line((50, y), (350, y))
+                for x, y, text in (
+                    (55, 115, "RowOne"), (205, 115, "100"),
+                    (205, 135, "200"), (55, 135, "RowTwo"),
+                    (55, 148, "Institution must use real evidence."),
+                ):
+                    page.insert_text((x, y), text, fontsize=9)
+                document.save(path)
+            parsed = parse_document(path)
+
+        text = "\n".join(chunk.text for chunk in parsed.chunks)
+        self.assertIn("RowOne | 100", text)
+        self.assertIn("RowTwo | 200", text)
+        self.assertTrue(text.endswith("Institution must use real evidence."))
+        self.assertEqual(text.count("RowTwo"), 1)
+
+    def test_article_number_continues_across_page_without_marker(self):
+        chunks = _chunks_from_pages(
+            [PageText("第五条 机构应当保存记录。", ((0, 1),)), PageText("机构应当定期报告。", ((0, 2),))],
+        )
+        self.assertEqual([chunk.article_number for chunk in chunks], ["第五条", "第五条"])
+        self.assertEqual([chunk.page_number for chunk in chunks], [1, 2])
+
+    def test_lettered_attachment_and_appendix_stop_article_inheritance(self):
+        for heading in ("附件甲", "附件A", "附录B：术语"):
+            with self.subTest(heading=heading):
+                chunks = _chunks_from_pages([
+                    PageText(f"第一条 正文。\n{heading}\n其他内容。", ((0, 1),)),
+                    PageText("本说明仅适用于境内银行。", ((0, 2),)),
+                ])
+                self.assertEqual([chunk.article_number for chunk in chunks], ["第一条", None, None])
+
+    def test_chapter_heading_stops_article_inheritance(self):
+        chunks = _chunks_from_pages(
+            [
+                PageText("第五条 机构应当保存记录。", ((0, 1),)),
+                PageText("第二章 报告要求", ((0, 2),)),
+                PageText("机构应当定期报告。", ((0, 3),)),
+            ],
+        )
+        self.assertEqual([chunk.article_number for chunk in chunks], ["第五条", None, None])
+
+    def test_low_confidence_ocr_page_adds_review_warning(self):
+        class LowConfidenceOCR:
+            def recognize(self, image_path: Path) -> str:
+                return "第一条 扫描页内容。"
+
+            def recognize_result(self, image_path: Path) -> OCRResult:
+                return OCRResult(
+                    text="第一条 扫描页内容。",
+                    lines=(OCRLine("第一条 扫描页内容。", 0.3, 0.34, 0.1, 0.42),),
+                    mean_confidence=0.42,
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "低置信度.pdf"
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            with path.open("wb") as output:
+                writer.write(output)
+            parsed = parse_document(path, ocr=LowConfidenceOCR())
+
+        self.assertTrue(any("置信度" in warning for warning in parsed.warnings))

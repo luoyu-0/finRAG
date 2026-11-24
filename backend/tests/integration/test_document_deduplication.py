@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import sys
 from datetime import timedelta
 
 import pytest
@@ -15,7 +16,7 @@ from app.domain.rag import Citation, EvidenceSupport, EvidenceSupportLevel, RagA
 from app.repositories.document_deduplication import duplicate_groups, remove_document_index
 from app.repositories.document_models import ChunkRecord, DocumentRecord
 from app.repositories.page_models import ImportTask
-from app.workers import import_documents
+from app.workers import import_documents, prune_off_topic
 from app.workers.evaluate_qa import _evaluate, _validate_cases
 
 
@@ -165,6 +166,43 @@ def test_cleanup_keeps_first_record_and_removes_only_duplicate_vectors(importer)
         assert len(list(db.scalars(select(DocumentRecord)))) == 2
         assert db.get(ChunkRecord, "duplicate-chunk") is None
     assert "duplicate-chunk" not in vectors.rows
+
+
+def test_financial_index_cleanup_requires_confirmed_candidate_ids(importer, monkeypatch, capsys):
+    run, sessions, vectors, embedding, root = importer
+    financial_name = "甲银行财务报表.txt"
+    other_report = "乙银行年度决算.txt"
+    policy_name = "企业会计准则第30号——财务报表列报.txt"
+    run(financial_name, "甲银行报告正文。")
+    run(other_report, "乙银行报告正文。")
+    run(policy_name, "第一条 财务报表列报要求。", metadata={"title": "财务报表"})
+    with sessions() as db:
+        ids = {document.file_name: document.id for document in db.scalars(select(DocumentRecord))}
+
+    monkeypatch.setattr(prune_off_topic, "initialize_database", lambda: None)
+    monkeypatch.setattr(prune_off_topic, "BgeEmbeddingProvider", lambda: embedding)
+    monkeypatch.setattr(prune_off_topic, "MilvusChunkRepository", lambda *_: vectors)
+
+    def invoke(*args):
+        monkeypatch.setattr(sys, "argv", ["prune_off_topic", *args])
+        prune_off_topic.main()
+
+    before = dict(vectors.rows)
+    invoke()
+    preview = capsys.readouterr().out
+    assert ids[financial_name] in preview and ids[other_report] in preview
+    assert ids[policy_name] not in preview
+    with pytest.raises(SystemExit):
+        invoke("--apply")
+    with pytest.raises(SystemExit):
+        invoke("--apply", "--document-id", ids[financial_name], "--document-id", ids[policy_name])
+    assert vectors.rows == before
+
+    invoke("--apply", "--document-id", ids[financial_name])
+    assert (root / financial_name).exists()
+    assert {row["document_id"] for row in vectors.rows.values()} == {ids[other_report], ids[policy_name]}
+    with sessions() as db:
+        assert set(db.scalars(select(DocumentRecord.id))) == {ids[other_report], ids[policy_name]}
 
 
 def test_evaluation_resolves_duplicate_filename_by_content(importer):
